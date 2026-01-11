@@ -218,13 +218,6 @@ def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None
 
     return model
 
-# early stopping
-early_stop = EarlyStopping(
-    monitor='val_loss', # monitorujemy stratę na zb. walidacyjnym
-    patience=30, # liczba epok bez poprawy, po której zatrzymujemy trening
-    restore_best_weights=True # przywrócenie najlepszej wartości monitorowanej metryki
-)
-
 # funkcja tworząca krzywe uczenia
 def plot_metric(history, metric, val_metric, title, ylabel, xlabel='Epoka', alias=None):
     plt.plot(history.history[metric], label=f'Zbiór treningowy')
@@ -238,7 +231,7 @@ def plot_metric(history, metric, val_metric, title, ylabel, xlabel='Epoka', alia
     plt.close()
 
 # funkcja tworząca macierz pomyłek
-def plot_confusion_matrix(model, X_test, y_test, labels=["Bad", "Good"], title="CM", alias=None):
+def plot_confusion_matrix(model, X_test, y_test, labels=["Bad", "Good"], title="cm", alias=None):
     # predykcje modelu
     y_pred_prob = model.predict(X_test)
     y_pred = (y_pred_prob > 0.5).astype(int)
@@ -249,7 +242,7 @@ def plot_confusion_matrix(model, X_test, y_test, labels=["Bad", "Good"], title="
     # zapis macierzy
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
     disp.plot(cmap='Reds')
-    plt.title(title)
+    plt.title(f"{title} - {alias}")
     plt.savefig(f"results_nn/{title.replace(' ', '_')}{('_' + alias) if alias else ''}.png")
     plt.clf()
     plt.close()
@@ -272,6 +265,28 @@ models = {
     "96-48-24-12": create_mlp_model(X_train_scaled, [96, 48, 24, 12], dropout_rates=[0.5, 0.4, 0.2, 0.1])
 }
 
+# # różne warianty wczesnego zatrzymania
+# early_stops = {
+#     "small": EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True, mode='auto', min_delta=0.005, baseline=None, verbose=2),
+#     "medium": EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True, mode='auto', min_delta=0.005, baseline=None, verbose=2),
+#     "large": EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True, mode='auto', min_delta=0.005, baseline=None, verbose=2),
+# }
+#
+# model_patience_map = {
+#     "8-4": early_stops["small"],
+#     "16-8": early_stops["small"],
+#     "24-12": early_stops["small"],
+#     "32-16": early_stops["small"],
+#     "40-20-10": early_stops["medium"],
+#     "48-24-12": early_stops["medium"],
+#     "56-28-14": early_stops["medium"],
+#     "64-32-16": early_stops["medium"],
+#     "72-36-18-9": early_stops["large"],
+#     "80-40-20-10": early_stops["large"],
+#     "88-44-22-11": early_stops["large"],
+#     "96-48-24-12": early_stops["large"]
+# }
+
 # tablica na wyniki
 results = []
 
@@ -286,9 +301,9 @@ for name, model in models.items():
     history = model.fit(
         X_train_scaled, y_train,
         validation_data=(X_val_scaled, y_val),
-        epochs=256,
+        epochs=512,
         batch_size=16,
-        # callbacks=[early_stop],
+        # callbacks=[model_patience_map[name]],
         verbose=2
     )
 
@@ -296,10 +311,10 @@ for name, model in models.items():
     test_loss, test_accuracy = model.evaluate(X_test_scaled, y_test)
 
     # dokładność
-    plot_metric(history, metric='accuracy', val_metric='val_accuracy', title='LC - Accuracy', ylabel='Dokładność', alias=name)
+    plot_metric(history, metric='accuracy', val_metric='val_accuracy', title='lc - accuracy', ylabel='Dokładność', alias=name)
 
     # strata
-    plot_metric(history, metric='loss', val_metric='val_loss', title='LC - Loss', ylabel='Strata', alias=name)
+    plot_metric(history, metric='loss', val_metric='val_loss', title='lc - loss', ylabel='Strata', alias=name)
 
     # macierz pomyłek i predykcje
     y_pred = plot_confusion_matrix(model, X_test_scaled, y_test, alias=name)
@@ -325,14 +340,15 @@ results_df = pd.DataFrame(results)
 results_df.to_csv("results_nn/classification_results.csv", index=False)
 
 # porównanie dokładności modeli
-plt.figure(figsize=(8,5))
 for result in results:
     plt.bar(result['Model'], result['Test Accuracy'])
 plt.title("Porównanie dokładności modeli")
 plt.xlabel("Model")
 plt.ylabel("Test Accuracy")
 plt.ylim(0, 1)
+plt.xticks(rotation=90)
 plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.tight_layout()
 plt.savefig("results_nn/accuracy_comparison.png")
 plt.clf()
 plt.close()
@@ -350,6 +366,7 @@ plt.title("Krzywe ROC modeli")
 plt.xlabel("False Positive Rate")
 plt.ylabel("True Positive Rate")
 plt.legend(loc="lower right")
+plt.tight_layout()
 plt.savefig("results_nn/roc_auc.png")
 plt.clf()
 plt.close()
@@ -404,9 +421,9 @@ X_test_scaled = scaler.transform(X_test)
 
 # słownik na modele, na razie tylko te, przy których nie stroimy hiperparametrów
 models = {
-    'Linear Discriminant Analysis': LinearDiscriminantAnalysis(),
-    'Quadratic Discriminant Analysis': QuadraticDiscriminantAnalysis(),
-    'Gaussian Naive Bayes': GaussianNB()
+    'LDA': LinearDiscriminantAnalysis(),
+    'QDA': QuadraticDiscriminantAnalysis(),
+    'GaussianNB': GaussianNB()
 }
 
 # liczba foldów (do walidacji krzyżowej)
@@ -453,7 +470,7 @@ for C in C_range:
 
 # ramka na wyniki; wybór najlepszego C; dodanie najlepszego modelu do słownika
 best_C_lr, df_cv_lr_results = pick_best(cv_lr_results, 'C')
-models.update({f"Logistic Regression, C={best_C_lr}": LogisticRegression(C=best_C_lr, random_state=RANDOM_STATE, max_iter=1000)})
+models.update({f"LR, C={best_C_lr}": LogisticRegression(C=best_C_lr, random_state=RANDOM_STATE, max_iter=1000)})
 
 # zapis do pliku CSV
 df_cv_lr_results.to_csv("results_ml/cv_lr_results.csv", index=False)
@@ -552,7 +569,7 @@ best_rf = RandomForestClassifier(
     min_samples_split=best_params['min_samples_split'],
     random_state=RANDOM_STATE
 )
-models.update({f"Random Forest, n={best_params['n_estimators']}, depth={best_params['max_depth']}, leaf={best_params['min_samples_leaf']}, split={best_params['min_samples_split']}": best_rf})
+models.update({f"RF, n={best_params['n_estimators']}, depth={best_params['max_depth']}, leaf={best_params['min_samples_leaf']}, split={best_params['min_samples_split']}": best_rf})
 
 # zapis wyników wszystkich testowanych kombinacji
 df_cv_rf_results = pd.DataFrame({
@@ -596,7 +613,7 @@ best_gb = GradientBoostingClassifier(
     max_depth=best_params['max_depth'],
     random_state=RANDOM_STATE
 )
-models.update({f"Gradient Boosting, n={best_params['n_estimators']}, depth={best_params['max_depth']}, lr={best_params['learning_rate']}": best_gb})
+models.update({f"GB, n={best_params['n_estimators']}, depth={best_params['max_depth']}, lr={best_params['learning_rate']}": best_gb})
 
 # zapis wyników wszystkich testowanych kombinacji
 df_cv_gb_results = pd.DataFrame({
@@ -659,6 +676,7 @@ plt.xlabel("False Positive Rate")
 plt.ylabel("True Positive Rate")
 plt.title("Krzywe ROC modeli")
 plt.legend(loc="lower right")
+plt.tight_layout()
 plt.savefig("results_ml/roc_auc.png")
 plt.clf()
 plt.close()
@@ -668,13 +686,13 @@ results_df = pd.DataFrame(results)
 results_df.to_csv("results_ml/classification_results.csv", index=False)
 
 # wykres porównania dokładności
-plt.figure(figsize=(8,5))
 plt.bar(results_df['Model'], results_df['Accuracy'], color='skyblue')
 plt.title("Porównanie dokładności modeli")
 plt.ylabel("Accuracy")
 plt.ylim(0,1)
 plt.xticks(rotation=90)
 plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.tight_layout()
 plt.savefig("results_ml/accuracy_comparison.png")
 plt.clf()
 plt.close()
