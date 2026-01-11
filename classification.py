@@ -15,7 +15,7 @@ from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split, cross_val_score, RandomizedSearchCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, BaggingClassifier, GradientBoostingClassifier
 from sklearn.svm import SVC
@@ -82,7 +82,7 @@ print("\n", corr)
 plt.figure()
 sns.heatmap(df.corr(), annot=True, cmap='coolwarm')
 plt.tight_layout()
-plt.savefig("info/CorrelationMatrix.png")
+plt.savefig("info/correlation_matrix.png")
 plt.clf()
 plt.close()
 
@@ -91,7 +91,7 @@ for feature in features:
     plt.figure()
     sns.histplot(df[feature], kde=True)
     plt.title(f'Rozkład cechy: {feature}')
-    plt.savefig(f"info/Histogram_{feature}.png")
+    plt.savefig(f"info/histogram_{feature}.png")
     plt.clf()
     plt.close()
 
@@ -100,7 +100,7 @@ for feature in features:
     plt.figure()
     sns.boxplot(x='Quality', y=feature, data=df)
     plt.title(f'{feature} vs Quality')
-    plt.savefig(f"info/Boxplot_{feature}_vs_Quality.png")
+    plt.savefig(f"info/boxplot_{feature}_vs_Quality.png")
     plt.clf()
     plt.close()
 
@@ -118,7 +118,7 @@ for feature in features:
     plt.yticks([0, 1], ['Bad', 'Good'])
     plt.legend(title='Quality')
     plt.tight_layout()
-    plt.savefig(f"info/Scatter_{feature}_vs_Quality.png")
+    plt.savefig(f"info/scatter_{feature}_vs_Quality.png")
     plt.clf()
     plt.close()
 
@@ -322,7 +322,7 @@ for name, model in models.items():
 
 # zapis tabeli wyników wszystkich modeli
 results_df = pd.DataFrame(results)
-results_df.to_csv("results_nn/Results.csv", index=False)
+results_df.to_csv("results_nn/classification_results.csv", index=False)
 
 # porównanie dokładności modeli
 plt.figure(figsize=(8,5))
@@ -333,7 +333,7 @@ plt.xlabel("Model")
 plt.ylabel("Test Accuracy")
 plt.ylim(0, 1)
 plt.grid(axis='y', linestyle='--', alpha=0.7)
-plt.savefig("results_nn/Accuracy.png")
+plt.savefig("results_nn/accuracy_comparison.png")
 plt.clf()
 plt.close()
 
@@ -350,7 +350,7 @@ plt.title("Krzywe ROC modeli")
 plt.xlabel("False Positive Rate")
 plt.ylabel("True Positive Rate")
 plt.legend(loc="lower right")
-plt.savefig("results_nn/ROC_AUC.png")
+plt.savefig("results_nn/roc_auc.png")
 plt.clf()
 plt.close()
 
@@ -388,10 +388,10 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 # info o liczebności próbek
-print("\nRozmiar zbioru treningowego:", X_train.shape[0])
+print("Rozmiar zbioru treningowego:", X_train.shape[0])
 print("\nRozmiar zbioru testowego:", X_test.shape[0])
 
-# opcjonalnie także klasy
+# info o liczebności klas
 print("\nLiczebność klas w zbiorze treningowym:")
 print(y_train.value_counts())
 print("\nLiczebność klas w zbiorze testowym:")
@@ -422,11 +422,11 @@ def pick_best(results, param_name):
 
 # k-NN
 # tworzymy listę nieparzystych k (1 - sqrt(l. probek w treningowym)); lista na wyniki cv
-ks = list(range(1, int(np.round(np.sqrt(X_train.shape[0]))) + 1, 2))
+k_range = list(range(1, int(np.round(np.sqrt(X_train.shape[0]))) + 1, 2))
 cv_knn_results = []
 
 # wykonujemy walidację krzyżową dla każdego k
-for k in ks:
+for k in k_range:
     model = KNeighborsClassifier(n_neighbors=k)
     scores = cross_val_score(model, X_train_scaled, y_train, cv=folds, scoring='accuracy')
     cv_knn_results.append([k, scores.mean()])
@@ -442,11 +442,11 @@ df_cv_knn_results.to_csv("results_ml/cv_knn_results.csv", index=False)
 
 # Regresja Logistyczna
 # lista wartości C do przetestowania; lista na wyniki walidacji krzyżowej
-Cs = np.logspace(-3, 2, 15)
+C_range = np.logspace(-3, 3, 20)
 cv_lr_results = []
 
 # walidacja krzyżowa dla każdego C - strojenie
-for C in Cs:
+for C in C_range:
     model = LogisticRegression(C=C, random_state=RANDOM_STATE, max_iter=1000)
     scores = cross_val_score(model, X_train_scaled, y_train, cv=folds, scoring='accuracy')
     cv_lr_results.append([C, scores.mean()])
@@ -465,7 +465,7 @@ df_cv_lr_results.to_csv("results_ml/cv_lr_results.csv", index=False)
 cv_svm_results = []
 
 # walidacja krzyżowa dla każdego C - strojenie
-for C in Cs:
+for C in C_range:
     model = SVC(C=C, probability=True, random_state=RANDOM_STATE)
     scores = cross_val_score(model, X_train_scaled, y_train, cv=folds, scoring='accuracy')
     cv_svm_results.append([C, scores.mean()])
@@ -479,29 +479,63 @@ df_cv_svm_results.to_csv("results_ml/cv_svm_results.csv", index=False)
 
 
 
+# # Bagging Classifier
+# # listy z parametrami do przetestowania; lista na wyniki walidacji krzyżowej
+# n_estimators_list = [50, 100, 150, 200, 250]
+# max_samples_list = [0.5, 0.75, 1.0]
+# cv_bag_results = []
+#
+# # walidacja krzyżowa dla każdej kombinacji parametrów
+# for n_estimators, max_samples in product(n_estimators_list, max_samples_list):
+#     model = BaggingClassifier(
+#         n_estimators=n_estimators,
+#         max_samples=max_samples,
+#         estimator=DecisionTreeClassifier(random_state=RANDOM_STATE),
+#         random_state=RANDOM_STATE
+#     )
+#     scores = cross_val_score(model, X_train_scaled, y_train, cv=folds, scoring='accuracy')
+#     cv_bag_results.append([n_estimators, max_samples, scores.mean()])
+#
+# # ramka wyników; wybór najlepszych parametrów
+# df_cv_bag_results = pd.DataFrame(cv_bag_results, columns=['n_estimators', 'max_samples', 'Accuracy'])
+# best_idx = df_cv_bag_results['Accuracy'].idxmax()
+# best_params = df_cv_bag_results.loc[best_idx]
+#
+# # dodanie najlepszego modelu do słownika
+# best_bag = BaggingClassifier(
+#     n_estimators=int(best_params['n_estimators']),
+#     max_samples=float(best_params['max_samples']),
+#     estimator=DecisionTreeClassifier(random_state=RANDOM_STATE),
+#     random_state=RANDOM_STATE
+# )
+# models.update({f"Bagging, n={best_params['n_estimators']}, samples={best_params['max_samples']}": best_bag})
+#
+# # zapis do pliku CSV
+# df_cv_bag_results.to_csv("results_ml/cv_bag_results.csv", index=False)
+
 # Bagging Classifier
-# parametry do przetestowania
-n_estimators_list = [50, 100, 200]
-max_samples_list = [0.5, 0.7, 1.0]  # procent próbek do bootstrap
-cv_bag_results = []
+# zakresy parametrów
+param_dist = {
+    'n_estimators': [50, 100, 150, 200, 250],
+    'max_samples': [0.5, 0.75, 1.0]
+}
 
-# walidacja krzyżowa dla każdej kombinacji parametrów
-for n_estimators, max_samples in product(n_estimators_list, max_samples_list):
-    model = BaggingClassifier(
-        n_estimators=n_estimators,
-        max_samples=max_samples,
-        estimator=DecisionTreeClassifier(random_state=RANDOM_STATE),
-        random_state=RANDOM_STATE
-    )
-    scores = cross_val_score(model, X_train_scaled, y_train, cv=folds, scoring='accuracy')
-    cv_bag_results.append([n_estimators, max_samples, scores.mean()])
+# RandomizedSearchCV i dopasowanie
+random_search_bag = RandomizedSearchCV(
+    estimator=BaggingClassifier(estimator=DecisionTreeClassifier(random_state=RANDOM_STATE), random_state=RANDOM_STATE),
+    param_distributions=param_dist,
+    n_iter=15,
+    scoring='accuracy',
+    cv=folds,
+    random_state=RANDOM_STATE
+)
+random_search_bag.fit(X_train_scaled, y_train)
 
-# ramka wyników; wybór najlepszych parametrów
-df_cv_bag_results = pd.DataFrame(cv_bag_results, columns=['n_estimators', 'max_samples', 'Accuracy'])
-best_idx = df_cv_bag_results['Accuracy'].idxmax()
-best_params = df_cv_bag_results.loc[best_idx]
+# najlepsze parametry
+best_params = random_search_bag.best_params_
+best_score = random_search_bag.best_score_
 
-# dodanie najlepszego modelu do słownika
+# zapis najlepszego modelu do słownika
 best_bag = BaggingClassifier(
     n_estimators=int(best_params['n_estimators']),
     max_samples=float(best_params['max_samples']),
@@ -510,91 +544,182 @@ best_bag = BaggingClassifier(
 )
 models.update({f"Bagging, n={best_params['n_estimators']}, samples={best_params['max_samples']}": best_bag})
 
-# zapis do pliku CSV
+# zapis wyników wszystkich testowanych kombinacji
+df_cv_bag_results = pd.DataFrame({
+    'n_estimators': random_search_bag.cv_results_['param_n_estimators'].data,
+    'max_samples': random_search_bag.cv_results_['param_max_samples'].data,
+    'Accuracy': random_search_bag.cv_results_['mean_test_score']
+})
 df_cv_bag_results.to_csv("results_ml/cv_bag_results.csv", index=False)
 
 
 
-# Lasy Losowe
+# # Random Forest
 # # listy z parametrami do przetestowania; lista na wyniki walidacji krzyżowej
-n_estimators_list = [50, 100, 200]
-max_depth_list = [3, 4, 5]
-min_samples_leaf_list = [1, 5, 10, 20]
-min_samples_split_list = [2, 5, 10, 20]
-cv_rf_results = []
+# n_estimators_list = [50, 100, 150, 200]
+# max_depth_list = [1, 2, 3, 4, None]
+# min_samples_leaf_list = [1, 2, 5, 10, 20]
+# min_samples_split_list = [2, 5, 10, 20]
+# cv_rf_results = []
+#
+# # walidacja krzyżowa dla każdej kombinacji parametrów
+# for n_estimators, max_depth, min_samples_leaf, min_samples_split in product(n_estimators_list, max_depth_list, min_samples_leaf_list, min_samples_split_list):
+#     model = RandomForestClassifier(
+#         n_estimators=n_estimators,
+#         max_depth=max_depth,
+#         min_samples_leaf=min_samples_leaf,
+#         min_samples_split=min_samples_split,
+#         random_state=RANDOM_STATE
+#     )
+#     scores = cross_val_score(model, X_train_scaled, y_train, cv=folds, scoring='accuracy')
+#     cv_rf_results.append([n_estimators, max_depth, min_samples_leaf, min_samples_split, scores.mean()])
+#
+# # ramka wyników; wybór najlepszych parametrów
+# df_cv_rf_results = pd.DataFrame(cv_rf_results, columns=['n_estimators','max_depth','min_samples_leaf','min_samples_split','Accuracy'])
+# best_idx = df_cv_rf_results['Accuracy'].idxmax()
+# best_params = df_cv_rf_results.loc[best_idx]
+#
+# # dodanie najlepszego modelu do słownika
+# best_rf = RandomForestClassifier(
+#     n_estimators=int(best_params['n_estimators']),
+#     max_depth=int(best_params['max_depth']),
+#     min_samples_leaf=int(best_params['min_samples_leaf']),
+#     min_samples_split=int(best_params['min_samples_split']),
+#     random_state=RANDOM_STATE
+# )
+# models.update({f"Random Forest, n={best_params['n_estimators']}, depth={best_params['max_depth']}, leaf={best_params['min_samples_leaf']}, split={best_params['min_samples_split']}": best_rf})
+#
+# # zapis do pliku CSV
+# df_cv_rf_results.to_csv("results_ml/cv_rf_results.csv", index=False)
 
-# walidacja krzyżowa dla każdej kombinacji parametrów
-for n_estimators, max_depth, min_samples_leaf, min_samples_split in product(n_estimators_list, max_depth_list, min_samples_leaf_list, min_samples_split_list):
-    model = RandomForestClassifier(
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        min_samples_leaf=min_samples_leaf,
-        min_samples_split=min_samples_split,
-        class_weight='balanced',
-        random_state=RANDOM_STATE
-    )
-    scores = cross_val_score(model, X_train_scaled, y_train, cv=folds, scoring='accuracy')
-    cv_rf_results.append([n_estimators, max_depth, min_samples_leaf, min_samples_split, scores.mean()])
+# Random Forest
+# zakresy parametrów
+param_dist = {
+    'n_estimators': [50, 100, 150, 200, 250],
+    'max_depth': [1, 2, 3, 4, 5, None],
+    'min_samples_leaf': [1, 2, 5, 10, 20],
+    'min_samples_split': [2, 5, 10, 20]
+}
 
-# ramka wyników; wybór najlepszych parametrów
-df_cv_rf_results = pd.DataFrame(cv_rf_results, columns=['n_estimators','max_depth','min_samples_leaf','min_samples_split','Accuracy'])
-best_idx = df_cv_rf_results['Accuracy'].idxmax()
-best_params = df_cv_rf_results.loc[best_idx]
+# RandomizedSearchCV i dopasowanie
+random_search = RandomizedSearchCV(
+    estimator=RandomForestClassifier(random_state=RANDOM_STATE),
+    param_distributions=param_dist,
+    n_iter=30,
+    scoring='accuracy',
+    cv=folds,
+    random_state=RANDOM_STATE
+)
+random_search.fit(X_train_scaled, y_train)
 
-# dodanie najlepszego modelu do słownika
+# najlepsze parametry
+best_params = random_search.best_params_
+best_score = random_search.best_score_
+
+# zapis najlepszego modelu do słownika
 best_rf = RandomForestClassifier(
-    n_estimators=int(best_params['n_estimators']),
-    max_depth=int(best_params['max_depth']),
-    min_samples_leaf=int(best_params['min_samples_leaf']),
-    min_samples_split=int(best_params['min_samples_split']),
-    class_weight='balanced',
+    n_estimators=best_params['n_estimators'],
+    max_depth=best_params['max_depth'],
+    min_samples_leaf=best_params['min_samples_leaf'],
+    min_samples_split=best_params['min_samples_split'],
     random_state=RANDOM_STATE
 )
 models.update({f"Random Forest, n={best_params['n_estimators']}, depth={best_params['max_depth']}, leaf={best_params['min_samples_leaf']}, split={best_params['min_samples_split']}": best_rf})
 
-# zapis do pliku CSV
+# zapis wyników wszystkich testowanych kombinacji
+df_cv_rf_results = pd.DataFrame({
+    'n_estimators': random_search.cv_results_['param_n_estimators'].data,
+    'max_depth': random_search.cv_results_['param_max_depth'].data,
+    'min_samples_leaf': random_search.cv_results_['param_min_samples_leaf'].data,
+    'min_samples_split': random_search.cv_results_['param_min_samples_split'].data,
+    'Accuracy': random_search.cv_results_['mean_test_score']
+})
 df_cv_rf_results.to_csv("results_ml/cv_rf_results.csv", index=False)
 
 
 
+# # Gradient Boosting
+# # listy z parametrami do przetestowania; lista na wyniki walidacji krzyżowej
+# n_estimators_list = [50, 100, 150, 200]
+# learning_rate_list = [0.001, 0.01, 0.05, 0.1]
+# max_depth_list = [1, 2, 3, 4, 5, None]
+# cv_gb_results = []
+#
+# # walidacja krzyżowa dla każdej kombinacji parametrów
+# for n_estimators, max_depth, lr in product(n_estimators_list, max_depth_list, learning_rate_list):
+#     model = GradientBoostingClassifier(
+#         n_estimators=n_estimators,
+#         max_depth=max_depth,
+#         learning_rate=lr,
+#         random_state=RANDOM_STATE
+#     )
+#     scores = cross_val_score(model, X_train_scaled, y_train, cv=folds, scoring='accuracy')
+#     cv_gb_results.append([n_estimators, max_depth, lr, scores.mean()])
+#
+# # ramka wyników; wybór najlepszych parametrów
+# df_cv_gb_results = pd.DataFrame(cv_gb_results, columns=['n_estimators', 'max_depth', 'learning_rate', 'Accuracy'])
+# best_idx = df_cv_gb_results['Accuracy'].idxmax()
+# best_params = df_cv_gb_results.loc[best_idx]
+#
+# # dodanie najlepszego modelu do słownika
+# best_gb = GradientBoostingClassifier(
+#     n_estimators=int(best_params['n_estimators']),
+#     max_depth=int(best_params['max_depth']),
+#     learning_rate=float(best_params['learning_rate']),
+#     random_state=RANDOM_STATE
+# )
+# models.update({f"Gradient Boosting, n={best_params['n_estimators']}, depth={best_params['max_depth']}, lr={best_params['learning_rate']}": best_gb})
+#
+# # zapis do pliku CSV
+# df_cv_gb_results.to_csv("results_ml/cv_gb_results.csv", index=False)
+
 # Gradient Boosting
-# parametry do przetestowania
-n_estimators_list = [50, 100, 200]
-max_depth_list = [3, 4, 5]
-learning_rate_list = [0.01, 0.05, 0.1]
-cv_gb_results = []
+# zakresy parametrów
+param_dist = {
+    'n_estimators': [50, 100, 150, 200],
+    'learning_rate': [0.001, 0.01, 0.05, 0.1],
+    'max_depth': [1, 2, 3, 4, 5, None]
+}
 
-for n_estimators, max_depth, lr in product(n_estimators_list, max_depth_list, learning_rate_list):
-    model = GradientBoostingClassifier(
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        learning_rate=lr,
-        random_state=RANDOM_STATE
-    )
-    scores = cross_val_score(model, X_train_scaled, y_train, cv=folds, scoring='accuracy')
-    cv_gb_results.append([n_estimators, max_depth, lr, scores.mean()])
+# RandomizedSearchCV i dopasowanie
+random_search_gb = RandomizedSearchCV(
+    estimator=GradientBoostingClassifier(random_state=RANDOM_STATE),
+    param_distributions=param_dist,
+    n_iter=30,
+    scoring='accuracy',
+    cv=folds,
+    random_state=RANDOM_STATE
+)
+random_search_gb.fit(X_train_scaled, y_train)
 
-df_cv_gb_results = pd.DataFrame(cv_gb_results, columns=['n_estimators', 'max_depth', 'learning_rate', 'Accuracy'])
-best_idx = df_cv_gb_results['Accuracy'].idxmax()
-best_params = df_cv_gb_results.loc[best_idx]
+# najlepsze parametry
+best_params = random_search_gb.best_params_
+best_score = random_search_gb.best_score_
 
+# zapis najlepszego modelu do słownika
 best_gb = GradientBoostingClassifier(
-    n_estimators=int(best_params['n_estimators']),
-    max_depth=int(best_params['max_depth']),
-    learning_rate=float(best_params['learning_rate']),
+    n_estimators=best_params['n_estimators'],
+    learning_rate=best_params['learning_rate'],
+    max_depth=best_params['max_depth'],
     random_state=RANDOM_STATE
 )
 models.update({f"Gradient Boosting, n={best_params['n_estimators']}, depth={best_params['max_depth']}, lr={best_params['learning_rate']}": best_gb})
 
-# zapis do pliku CSV
+# zapis wyników wszystkich testowanych kombinacji
+df_cv_gb_results = pd.DataFrame({
+    'n_estimators': random_search_gb.cv_results_['param_n_estimators'].data,
+    'max_depth': random_search_gb.cv_results_['param_max_depth'].data,
+    'learning_rate': random_search_gb.cv_results_['param_learning_rate'].data,
+    'Accuracy': random_search_gb.cv_results_['mean_test_score']
+})
 df_cv_gb_results.to_csv("results_ml/cv_gb_results.csv", index=False)
 
 
 
-plt.figure(figsize=(8, 6))
-
+# lista na wyniki
 results = []
 
+# pętla po modelach, uczenie każdego modelu
 for name, model in models.items():
     print(f"\nModel: {name}")
 
