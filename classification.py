@@ -12,7 +12,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.model_selection import train_test_split, cross_val_score, RandomizedSearchCV
@@ -219,9 +219,18 @@ def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None
     return model
 
 # funkcja tworząca krzywe uczenia
-def plot_metric(history, metric, val_metric, title, ylabel, xlabel='Epoka', alias=None):
-    plt.plot(history.history[metric], label=f'Zbiór treningowy')
-    plt.plot(history.history[val_metric], label=f'Zbiór walidacyjny')
+def plot_metric(history, metric, val_metric, title, ylabel, xlabel='Epoka', alias=None, best_epoch_idx=None):
+    plt.plot(history.history[metric], label='Zbiór treningowy')
+    plt.plot(history.history[val_metric], label='Zbiór walidacyjny')
+
+    if best_epoch_idx is not None:
+        best_val = history.history[val_metric][best_epoch_idx]
+
+        # pionowa linia i punkt
+        plt.axvline(best_epoch_idx, color='r', linestyle='--', alpha=0.5)
+        plt.plot(best_epoch_idx, best_val, 'ro')
+        plt.text(best_epoch_idx, best_val, f"{best_val:.3f}", color='r', va='bottom')
+
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -297,6 +306,15 @@ for name, model in models.items():
     # podsumowanie struktury modelu
     model.summary()
 
+    # callback do zapisu najlepszych wag
+    checkpoint = ModelCheckpoint(
+        f"{name}_.weights.h5",
+        monitor='val_loss',
+        save_best_only=True,
+        save_weights_only=True,
+        verbose=1
+    )
+
     # uczenie modelu
     history = model.fit(
         X_train_scaled, y_train,
@@ -304,17 +322,36 @@ for name, model in models.items():
         epochs=512,
         batch_size=16,
         # callbacks=[model_patience_map[name]],
+        callbacks=[checkpoint],
         verbose=2
     )
+
+    # przywrócenie najlepszych wag
+    model.load_weights(f"{name}_.weights.h5")
+
+    # historia strat i dokładności walidacyjnej
+    val_loss = history.history['val_loss']
+    val_accuracy = history.history['val_accuracy']  # lub inna metryka walidacyjna
+
+    # indeks epoki z najmniejszą stratą
+    best_epoch_idx = np.argmin(val_loss)
+
+    # wartości w tej epoce
+    best_loss = val_loss[best_epoch_idx]
+    best_score = val_accuracy[best_epoch_idx]
+
+    print(f"Best epoch: {best_epoch_idx + 1}")
+    print(f"Best loss: {best_loss}")
+    print(f"Best score: {best_score}")
 
     # ewaluacja na zbiorze testowym
     test_loss, test_accuracy = model.evaluate(X_test_scaled, y_test)
 
     # dokładność
-    plot_metric(history, metric='accuracy', val_metric='val_accuracy', title='lc - accuracy', ylabel='Dokładność', alias=name)
+    plot_metric(history, metric='accuracy', val_metric='val_accuracy', title='lc - accuracy', ylabel='Dokładność', alias=name, best_epoch_idx=best_epoch_idx)
 
     # strata
-    plot_metric(history, metric='loss', val_metric='val_loss', title='lc - loss', ylabel='Strata', alias=name)
+    plot_metric(history, metric='loss', val_metric='val_loss', title='lc - loss', ylabel='Strata', alias=name, best_epoch_idx=best_epoch_idx)
 
     # macierz pomyłek i predykcje
     y_pred = plot_confusion_matrix(model, X_test_scaled, y_test, alias=name)
