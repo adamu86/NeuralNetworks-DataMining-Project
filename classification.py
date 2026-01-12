@@ -8,11 +8,13 @@ import warnings
 
 import seaborn as sns
 import tensorflow as tf
+from scipy.stats import shapiro
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.regularizers import L1, L2, L1L2
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.model_selection import train_test_split, cross_val_score, RandomizedSearchCV
@@ -76,24 +78,39 @@ print(df.head())
 df.to_csv("apple_quality_cleaned.csv", index=False)
 
 # dalsza analiza po czyszczeniu
-# macierz korelacji
+# macierz korelacji (Pearson)
 corr = df.corr()['Quality'].sort_values()
 print("\n", corr)
 plt.figure()
-sns.heatmap(df.corr(), annot=True, cmap='coolwarm')
+sns.heatmap(df.corr(method='pearson'), annot=True, cmap='coolwarm')
 plt.tight_layout()
-plt.savefig("info/correlation_matrix.png")
+plt.savefig("info/correlation_matrix_pearson.png")
+plt.clf()
+plt.close()
+
+# macierz korelacji (Spearman)
+corr = df.corr()['Quality'].sort_values()
+print("\n", corr)
+plt.figure()
+sns.heatmap(df.corr(method='spearman'), annot=True, cmap='coolwarm')
+plt.tight_layout()
+plt.savefig("info/correlation_matrix_spearman.png")
 plt.clf()
 plt.close()
 
 # histogramy cech
+normality = []
 for feature in features:
     plt.figure()
     sns.histplot(df[feature], kde=True)
-    plt.title(f'Rozkład cechy: {feature}')
+    stat, p = shapiro(df[feature])
+    normality.append({'Feature': feature, 'Statistic': stat, 'p_value': p})
+    plt.title(f'Rozkład cechy: {feature} (p={p:.3f}, stat={stat:.3f})')
     plt.savefig(f"info/histogram_{feature}.png")
     plt.clf()
     plt.close()
+
+pd.DataFrame(normality).to_csv("info/normal_distributions.csv", index=False)
 
 # boxplot cecha vs jakość
 for feature in features:
@@ -194,16 +211,28 @@ X_test_scaled = scaler.transform(X_test)
 
 
 # funkcja tworząca model
-def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None, optimizer='adam'):
+def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None, l1_rates=None, l2_rates=None, optimizer='adam'):
     model = Sequential()
 
     # pętla po warstwach
-    for i, (units, dropout_rate) in enumerate(zip(hidden_layers, dropout_rates)):
-        if i == 0:
-            model.add(Dense(units, activation=activation, input_dim=input.shape[1]))
+    for i, (units, dropout_rate, l1_rate, l2_rate) in enumerate(zip(hidden_layers, dropout_rates, l1_rates, l2_rates)):
+        # obiekt regularyzacji L1/L2/L1L2
+        if l1_rate is not None and l2_rate is not None:
+            reg = L1L2(l1=l1_rate, l2=l2_rate)
+        elif l1_rate is not None:
+            reg = L1(l1_rate)
+        elif l2_rate is not None:
+            reg = L2(l2_rate)
         else:
-            model.add(Dense(units, activation=activation))
+            reg = None
 
+        # dodanie warstwy w sieci
+        if i == 0:
+            model.add(Dense(units, activation=activation, input_dim=input.shape[1], kernel_regularizer=reg))
+        else:
+            model.add(Dense(units, activation=activation, kernel_regularizer=reg))
+
+        # dodanie dropout
         model.add(Dropout(dropout_rate))
 
     # warstwa wyjściowa
@@ -260,18 +289,18 @@ def plot_confusion_matrix(model, X_test, y_test, labels=["Bad", "Good"], title="
 
 # tworzenie modeli
 models = {
-    "8-4": create_mlp_model(X_train_scaled, [8, 4], dropout_rates=[0.1, 0]),
-    "16-8": create_mlp_model(X_train_scaled, [16, 8], dropout_rates=[0.1, 0.1]),
-    "24-12": create_mlp_model(X_train_scaled, [24, 12], dropout_rates=[0.2, 0.1]),
-    "32-16": create_mlp_model(X_train_scaled, [32, 16], dropout_rates=[0.3, 0.2]),
-    "40-20-10": create_mlp_model(X_train_scaled, [40, 20, 10], dropout_rates=[0.2, 0.1, 0.1]),
-    "48-24-12": create_mlp_model(X_train_scaled, [48, 24, 12], dropout_rates=[0.3, 0.2, 0.2]),
-    "56-28-14": create_mlp_model(X_train_scaled, [56, 28, 14], dropout_rates=[0.3, 0.3, 0.2]),
-    "64-32-16": create_mlp_model(X_train_scaled, [64, 32, 16], dropout_rates=[0.4, 0.3, 0.2]),
-    "72-36-18-9": create_mlp_model(X_train_scaled, [72, 36, 18, 9], dropout_rates=[0.4, 0.2, 0.2, 0.1]),
-    "80-40-20-10": create_mlp_model(X_train_scaled, [80, 40, 20, 10], dropout_rates=[0.4, 0.3, 0.2, 0.1]),
-    "88-44-22-11": create_mlp_model(X_train_scaled, [88, 48, 24, 11], dropout_rates=[0.5, 0.3, 0.2, 0.1]),
-    "96-48-24-12": create_mlp_model(X_train_scaled, [96, 48, 24, 12], dropout_rates=[0.5, 0.4, 0.2, 0.1])
+    "8-4": create_mlp_model(X_train_scaled, [8, 4], dropout_rates=[0.1, 0], l1_rates=[None, None], l2_rates=[0.001, 0.001]),
+    "16-8": create_mlp_model(X_train_scaled, [16, 8], dropout_rates=[0.1, 0.1], l1_rates=[None, None], l2_rates=[0.001, 0.001]),
+    "24-12": create_mlp_model(X_train_scaled, [24, 12], dropout_rates=[0.2, 0.1], l1_rates=[0.0005, None], l2_rates=[0.001, 0.001]),
+    "32-16": create_mlp_model(X_train_scaled, [32, 16], dropout_rates=[0.3, 0.2], l1_rates=[0.0005, 0.0005], l2_rates=[0.001, 0.001]),
+    "40-20-10": create_mlp_model(X_train_scaled, [40, 20, 10], dropout_rates=[0.2, 0.1, 0.1], l1_rates=[0.0005, 0.0005, None], l2_rates=[0.001, 0.001, 0.001]),
+    "48-24-12": create_mlp_model(X_train_scaled, [48, 24, 12], dropout_rates=[0.3, 0.2, 0.2], l1_rates=[0.0005, 0.0005, 0.0005], l2_rates=[0.001, 0.001, 0.001]),
+    "56-28-14": create_mlp_model(X_train_scaled, [56, 28, 14], dropout_rates=[0.3, 0.3, 0.2], l1_rates=[0.001, 0.001, 0.0005], l2_rates=[0.001, 0.001, 0.001]),
+    "64-32-16": create_mlp_model(X_train_scaled, [64, 32, 16], dropout_rates=[0.4, 0.3, 0.2], l1_rates=[0.001, 0.001, 0.001], l2_rates=[0.0015, 0.001, 0.001]),
+    "72-36-18-9": create_mlp_model(X_train_scaled, [72, 36, 18, 9], dropout_rates=[0.4, 0.2, 0.2, 0.1], l1_rates=[0.001, 0.001, 0.001, 0.0005], l2_rates=[0.0015, 0.001, 0.001, 0.001]),
+    "80-40-20-10": create_mlp_model(X_train_scaled, [80, 40, 20, 10], dropout_rates=[0.4, 0.3, 0.2, 0.1], l1_rates=[0.001, 0.001, 0.001, 0.001], l2_rates=[0.002, 0.0015, 0.001, 0.001]),
+    "88-44-22-11": create_mlp_model(X_train_scaled, [88, 48, 24, 11], dropout_rates=[0.5, 0.3, 0.2, 0.1], l1_rates=[0.0015, 0.001, 0.001, 0.001], l2_rates=[0.002, 0.002, 0.0015, 0.001]),
+    "96-48-24-12": create_mlp_model(X_train_scaled, [96, 48, 24, 12], dropout_rates=[0.5, 0.4, 0.2, 0.1], l1_rates=[0.002, 0.0015, 0.001, 0.001], l2_rates=[0.0025, 0.002, 0.0015, 0.001])
 }
 
 # # różne warianty wczesnego zatrzymania
