@@ -214,6 +214,17 @@ X_test_scaled = scaler.transform(X_test)
 def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None, l1_rates=None, l2_rates=None, optimizer='adam'):
     model = Sequential()
 
+    # liczba warstw
+    n_layers = len(hidden_layers)
+
+    # jeśli nie podamy regularyzacji
+    if dropout_rates is None:
+        dropout_rates = [0.0] * n_layers
+    if l1_rates is None:
+        l1_rates = [None] * n_layers
+    if l2_rates is None:
+        l2_rates = [None] * n_layers
+
     # pętla po warstwach
     for i, (units, dropout_rate, l1_rate, l2_rate) in enumerate(zip(hidden_layers, dropout_rates, l1_rates, l2_rates)):
         # obiekt regularyzacji L1/L2/L1L2
@@ -226,7 +237,7 @@ def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None
         else:
             reg = None
 
-        # dodanie warstwy w sieci
+        # dodanie warstwy w sieci,
         if i == 0:
             model.add(Dense(units, activation=activation, input_dim=input.shape[1], kernel_regularizer=reg))
         else:
@@ -251,15 +262,6 @@ def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None
 def plot_metric(history, metric, val_metric, title, ylabel, xlabel='Epoka', alias=None, best_epoch_idx=None):
     plt.plot(history.history[metric], label='Zbiór treningowy')
     plt.plot(history.history[val_metric], label='Zbiór walidacyjny')
-
-    if best_epoch_idx is not None:
-        best_val = history.history[val_metric][best_epoch_idx]
-
-        # pionowa linia i punkt
-        plt.axvline(best_epoch_idx, color='r', linestyle='--', alpha=0.5)
-        plt.plot(best_epoch_idx, best_val, 'ro')
-        plt.text(best_epoch_idx, best_val, f"{best_val:.3f}", color='r', va='bottom')
-
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -287,43 +289,23 @@ def plot_confusion_matrix(model, X_test, y_test, labels=["Bad", "Good"], title="
 
     return y_pred
 
-# tworzenie modeli
+# tworzenie modeli w słowniku
 models = {
-    "8-4": create_mlp_model(X_train_scaled, [8, 4], dropout_rates=[0.1, 0], l1_rates=[None, None], l2_rates=[0.001, 0.001]),
-    "16-8": create_mlp_model(X_train_scaled, [16, 8], dropout_rates=[0.1, 0.1], l1_rates=[None, None], l2_rates=[0.001, 0.001]),
-    "24-12": create_mlp_model(X_train_scaled, [24, 12], dropout_rates=[0.2, 0.1], l1_rates=[0.0005, None], l2_rates=[0.001, 0.001]),
-    "32-16": create_mlp_model(X_train_scaled, [32, 16], dropout_rates=[0.3, 0.2], l1_rates=[0.0005, 0.0005], l2_rates=[0.001, 0.001]),
-    "40-20-10": create_mlp_model(X_train_scaled, [40, 20, 10], dropout_rates=[0.2, 0.1, 0.1], l1_rates=[0.0005, 0.0005, None], l2_rates=[0.001, 0.001, 0.001]),
-    "48-24-12": create_mlp_model(X_train_scaled, [48, 24, 12], dropout_rates=[0.3, 0.2, 0.2], l1_rates=[0.0005, 0.0005, 0.0005], l2_rates=[0.001, 0.001, 0.001]),
-    "56-28-14": create_mlp_model(X_train_scaled, [56, 28, 14], dropout_rates=[0.3, 0.3, 0.2], l1_rates=[0.001, 0.001, 0.0005], l2_rates=[0.001, 0.001, 0.001]),
-    "64-32-16": create_mlp_model(X_train_scaled, [64, 32, 16], dropout_rates=[0.4, 0.3, 0.2], l1_rates=[0.001, 0.001, 0.001], l2_rates=[0.0015, 0.001, 0.001]),
-    "72-36-18-9": create_mlp_model(X_train_scaled, [72, 36, 18, 9], dropout_rates=[0.4, 0.2, 0.2, 0.1], l1_rates=[0.001, 0.001, 0.001, 0.0005], l2_rates=[0.0015, 0.001, 0.001, 0.001]),
-    "80-40-20-10": create_mlp_model(X_train_scaled, [80, 40, 20, 10], dropout_rates=[0.4, 0.3, 0.2, 0.1], l1_rates=[0.001, 0.001, 0.001, 0.001], l2_rates=[0.002, 0.0015, 0.001, 0.001]),
-    "88-44-22-11": create_mlp_model(X_train_scaled, [88, 48, 24, 11], dropout_rates=[0.5, 0.3, 0.2, 0.1], l1_rates=[0.0015, 0.001, 0.001, 0.001], l2_rates=[0.002, 0.002, 0.0015, 0.001]),
-    "96-48-24-12": create_mlp_model(X_train_scaled, [96, 48, 24, 12], dropout_rates=[0.5, 0.4, 0.2, 0.1], l1_rates=[0.002, 0.0015, 0.001, 0.001], l2_rates=[0.0025, 0.002, 0.0015, 0.001])
+    "[16]": create_mlp_model(X_train_scaled, hidden_layers=[16], dropout_rates=[0.0], l2_rates=[0.01]),
+    "[32]": create_mlp_model(X_train_scaled, hidden_layers=[32], dropout_rates=[0.1], l2_rates=[0.01]),
+    "[64]": create_mlp_model(X_train_scaled, hidden_layers=[64], dropout_rates=[0.15], l2_rates=[0.01]),
+    "[128]": create_mlp_model(X_train_scaled, hidden_layers=[128], dropout_rates=[0.2], l2_rates=[0.01]),
+    "[16,16]": create_mlp_model(X_train_scaled, hidden_layers=[16, 16], dropout_rates=[0.05, 0.05], l1_rates=[0.01, 0.01]),
+    "[32,16]": create_mlp_model(X_train_scaled, hidden_layers=[32, 16], dropout_rates=[0.1, 0.1], l1_rates=[0.001, 0.001], l2_rates=[0.01, 0.01]),
+    "[64,32]": create_mlp_model(X_train_scaled, hidden_layers=[64, 32], dropout_rates=[0.2, 0.1], l2_rates=[0.01, 0.01]),
+    "[64,64]": create_mlp_model(X_train_scaled, hidden_layers=[64, 64], dropout_rates=[0.25, 0.25], l1_rates=[0.005, 0.005]),
+    "[128,64]": create_mlp_model(X_train_scaled, hidden_layers=[128, 64], dropout_rates=[0.4, 0.3], l2_rates=[0.01, 0.01]),
+    "[128,128]": create_mlp_model(X_train_scaled, hidden_layers=[128, 128], dropout_rates=[0.3, 0.3], l1_rates=[0.001, 0.001], l2_rates=[0.005, 0.005]),
+    "[32,32,16]": create_mlp_model(X_train_scaled, hidden_layers=[32, 32, 16], dropout_rates=[0.1, 0.1, 0.05], l2_rates=[0.001, 0.001, 0.001]),
+    "[64,32,16]": create_mlp_model(X_train_scaled, hidden_layers=[64, 32, 16], dropout_rates=[0.2, 0.1, 0.05], l1_rates=[0.001, 0.001, 0.001], l2_rates=[0.001, 0.001, 0.001]),
+    "[128,64,32]": create_mlp_model(X_train_scaled, hidden_layers=[128, 64, 32], dropout_rates=[0.3, 0.2, 0.1], l2_rates=[0.01, 0.01, 0.01]),
+    "[256,128,64]": create_mlp_model(X_train_scaled, hidden_layers=[256, 128, 64], dropout_rates=[0.4, 0.3, 0.2], l2_rates=[0.01, 0.01, 0.01]),
 }
-
-# # różne warianty wczesnego zatrzymania
-# early_stops = {
-#     "small": EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True, mode='auto', min_delta=0.005, baseline=None, verbose=2),
-#     "medium": EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True, mode='auto', min_delta=0.005, baseline=None, verbose=2),
-#     "large": EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True, mode='auto', min_delta=0.005, baseline=None, verbose=2),
-# }
-#
-# model_patience_map = {
-#     "8-4": early_stops["small"],
-#     "16-8": early_stops["small"],
-#     "24-12": early_stops["small"],
-#     "32-16": early_stops["small"],
-#     "40-20-10": early_stops["medium"],
-#     "48-24-12": early_stops["medium"],
-#     "56-28-14": early_stops["medium"],
-#     "64-32-16": early_stops["medium"],
-#     "72-36-18-9": early_stops["large"],
-#     "80-40-20-10": early_stops["large"],
-#     "88-44-22-11": early_stops["large"],
-#     "96-48-24-12": early_stops["large"]
-# }
 
 # tablica na wyniki
 results = []
@@ -335,52 +317,34 @@ for name, model in models.items():
     # podsumowanie struktury modelu
     model.summary()
 
-    # callback do zapisu najlepszych wag
-    checkpoint = ModelCheckpoint(
-        f"{name}_.weights.h5",
+    # mechanizm wczesnego zatrzymania
+    early_stopping = EarlyStopping(
         monitor='val_loss',
-        save_best_only=True,
-        save_weights_only=True,
-        verbose=1
+        patience=50,
+        min_delta=0.01,
+        restore_best_weights=True,
+        verbose=1,
     )
 
     # uczenie modelu
     history = model.fit(
         X_train_scaled, y_train,
         validation_data=(X_val_scaled, y_val),
-        epochs=512,
-        batch_size=16,
-        # callbacks=[model_patience_map[name]],
-        callbacks=[checkpoint],
+        epochs=600,
+        batch_size=32,
+        callbacks=[early_stopping],
+        shuffle=True,
         verbose=2
     )
-
-    # przywrócenie najlepszych wag
-    model.load_weights(f"{name}_.weights.h5")
-
-    # historia strat i dokładności walidacyjnej
-    val_loss = history.history['val_loss']
-    val_accuracy = history.history['val_accuracy']  # lub inna metryka walidacyjna
-
-    # indeks epoki z najmniejszą stratą
-    best_epoch_idx = np.argmin(val_loss)
-
-    # wartości w tej epoce
-    best_loss = val_loss[best_epoch_idx]
-    best_score = val_accuracy[best_epoch_idx]
-
-    print(f"Best epoch: {best_epoch_idx + 1}")
-    print(f"Best loss: {best_loss}")
-    print(f"Best score: {best_score}")
 
     # ewaluacja na zbiorze testowym
     test_loss, test_accuracy = model.evaluate(X_test_scaled, y_test)
 
     # dokładność
-    plot_metric(history, metric='accuracy', val_metric='val_accuracy', title='lc - accuracy', ylabel='Dokładność', alias=name, best_epoch_idx=best_epoch_idx)
+    plot_metric(history, metric='accuracy', val_metric='val_accuracy', title='lc - accuracy', ylabel='Dokładność', alias=name)
 
     # strata
-    plot_metric(history, metric='loss', val_metric='val_loss', title='lc - loss', ylabel='Strata', alias=name, best_epoch_idx=best_epoch_idx)
+    plot_metric(history, metric='loss', val_metric='val_loss', title='lc - loss', ylabel='Strata', alias=name)
 
     # macierz pomyłek i predykcje
     y_pred = plot_confusion_matrix(model, X_test_scaled, y_test, alias=name)
