@@ -259,7 +259,7 @@ def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None
     return model
 
 # funkcja tworząca krzywe uczenia
-def plot_metric(history, metric, val_metric, title, ylabel, xlabel='Epoka', alias=None, best_epoch_idx=None):
+def plot_metric(history, metric, val_metric, title, ylabel, xlabel='Epoch', alias=None):
     plt.plot(history.history[metric], label='Zbiór treningowy')
     plt.plot(history.history[val_metric], label='Zbiór walidacyjny')
     plt.title(title)
@@ -291,6 +291,7 @@ def plot_confusion_matrix(model, X_test, y_test, labels=["Bad", "Good"], title="
 
 # tworzenie modeli w słowniku
 models = {
+    "[8]": create_mlp_model(X_train_scaled, hidden_layers=[8], dropout_rates=[0.0], l2_rates=[0.005]),
     "[16]": create_mlp_model(X_train_scaled, hidden_layers=[16], dropout_rates=[0.0], l2_rates=[0.01]),
     "[32]": create_mlp_model(X_train_scaled, hidden_layers=[32], dropout_rates=[0.1], l2_rates=[0.01]),
     "[64]": create_mlp_model(X_train_scaled, hidden_layers=[64], dropout_rates=[0.15], l2_rates=[0.01]),
@@ -330,7 +331,7 @@ for name, model in models.items():
     history = model.fit(
         X_train_scaled, y_train,
         validation_data=(X_val_scaled, y_val),
-        epochs=600,
+        epochs=1000,
         batch_size=32,
         callbacks=[early_stopping],
         shuffle=True,
@@ -341,10 +342,10 @@ for name, model in models.items():
     test_loss, test_accuracy = model.evaluate(X_test_scaled, y_test)
 
     # dokładność
-    plot_metric(history, metric='accuracy', val_metric='val_accuracy', title='lc - accuracy', ylabel='Dokładność', alias=name)
+    plot_metric(history, metric='accuracy', val_metric='val_accuracy', title='lc - accuracy', ylabel='Accuracy', alias=name)
 
     # strata
-    plot_metric(history, metric='loss', val_metric='val_loss', title='lc - loss', ylabel='Strata', alias=name)
+    plot_metric(history, metric='loss', val_metric='val_loss', title='lc - loss', ylabel='Loss', alias=name)
 
     # macierz pomyłek i predykcje
     y_pred = plot_confusion_matrix(model, X_test_scaled, y_test, alias=name)
@@ -367,16 +368,45 @@ for name, model in models.items():
 
 # zapis tabeli wyników wszystkich modeli
 results_df = pd.DataFrame(results)
+results_df = results_df.sort_values(by='Test Accuracy', ascending=False)
 results_df.to_csv("results_nn/classification_results.csv", index=False)
 
+model_names = results_df['Model']
+x = np.arange(len(model_names))
+width = 0.25
+
+fig, ax = plt.subplots(figsize=(12,6))
+
+# słupki dla różnych metryk
+ax.bar(x - width, results_df['Test Accuracy'], width, label='Accuracy')
+ax.bar(x, results_df['F1-Score (Good)'], width, label='F1 Good')
+ax.bar(x + width, results_df['F1-Score (Bad)'], width, label='F1 Bad')
+
+# etykiety
+ax.set_xlabel('Model')
+ax.set_ylabel('Wartość metryki')
+ax.set_title('Porównanie metryk modeli')
+ax.set_xticks(x)
+ax.set_xticklabels(model_names, rotation=80, ha='right')
+ax.legend()
+
+plt.tight_layout()
+plt.savefig("results_nn/classification_results.png")
+plt.clf()
+plt.close()
+
+# posortowanie wyników względem dokładności malejąco
+results_sorted = sorted(results, key=lambda x: x['Test Accuracy'], reverse=True)
+
 # porównanie dokładności modeli
-for result in results:
+for result in results_sorted:
     plt.bar(result['Model'], result['Test Accuracy'])
+
 plt.title("Porównanie dokładności modeli")
 plt.xlabel("Model")
 plt.ylabel("Test Accuracy")
 plt.ylim(0, 1)
-plt.xticks(rotation=90)
+plt.xticks(rotation=80)
 plt.grid(axis='y', linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.savefig("results_nn/accuracy_comparison.png")
@@ -389,7 +419,7 @@ for name, model in models.items():
     y_pred_prob = model.predict(X_test_scaled).ravel()  # predykcje prawdopodobieństwa
     fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob)
     roc_auc = auc(fpr, tpr)
-    plt.plot(fpr, tpr, label=f'Model {name} (AUC = {roc_auc:.3f})')
+    plt.plot(fpr, tpr, label=f'{name} (AUC = {roc_auc:.3f})')
 
 plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
 plt.title("Krzywe ROC modeli")
@@ -691,7 +721,7 @@ for name, model in models.items():
     cm = confusion_matrix(y_test, y_pred)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Bad", "Good"])
     disp.plot(cmap='Reds')
-    plt.title(f"Macierz pomyłek - {name}")
+    plt.title(f"cm - {name}")
     plt.savefig(f"results_ml/cm_{name.replace(' ', '_')}.png")
     plt.close()
 
@@ -720,7 +750,7 @@ plt.bar(results_df['Model'], results_df['Accuracy'], color='skyblue')
 plt.title("Porównanie dokładności modeli")
 plt.ylabel("Accuracy")
 plt.ylim(0,1)
-plt.xticks(rotation=90)
+plt.xticks(rotation=80)
 plt.grid(axis='y', linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.savefig("results_ml/accuracy_comparison.png")
