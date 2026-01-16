@@ -8,11 +8,13 @@ import warnings
 
 import seaborn as sns
 import tensorflow as tf
+from scipy.stats import shapiro
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.regularizers import L1, L2, L1L2
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.model_selection import train_test_split, cross_val_score, RandomizedSearchCV
@@ -25,6 +27,16 @@ from sklearn.metrics import accuracy_score, classification_report
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 
 warnings.filterwarnings("ignore")
+
+# zwiększona czcionka dla lepszej czytelności wykresów pyplot
+plt.rcParams.update({
+    'font.size': 14,
+    'axes.titlesize': 16,
+    'axes.labelsize': 14,
+    'legend.fontsize': 12,
+    'xtick.labelsize': 12,
+    'ytick.labelsize': 12
+})
 
 
 # ustalenie ziarna dla powtarzalności wyników
@@ -76,24 +88,39 @@ print(df.head())
 df.to_csv("apple_quality_cleaned.csv", index=False)
 
 # dalsza analiza po czyszczeniu
-# macierz korelacji
+# macierz korelacji (Pearson)
 corr = df.corr()['Quality'].sort_values()
 print("\n", corr)
 plt.figure()
-sns.heatmap(df.corr(), annot=True, cmap='coolwarm')
+sns.heatmap(df.corr(method='pearson'), annot=True, cmap='coolwarm')
 plt.tight_layout()
-plt.savefig("info/correlation_matrix.png")
+plt.savefig("info/correlation_matrix_pearson.png")
+plt.clf()
+plt.close()
+
+# macierz korelacji (Spearman)
+corr = df.corr()['Quality'].sort_values()
+print("\n", corr)
+plt.figure()
+sns.heatmap(df.corr(method='spearman'), annot=True, cmap='coolwarm')
+plt.tight_layout()
+plt.savefig("info/correlation_matrix_spearman.png")
 plt.clf()
 plt.close()
 
 # histogramy cech
+normality = []
 for feature in features:
     plt.figure()
     sns.histplot(df[feature], kde=True)
-    plt.title(f'Rozkład cechy: {feature}')
+    stat, p = shapiro(df[feature])
+    normality.append({'Feature': feature, 'Statistic': stat, 'p_value': p})
+    plt.title(f'Rozkład cechy: {feature} (p={p:.3f}, stat={stat:.3f})')
     plt.savefig(f"info/histogram_{feature}.png")
     plt.clf()
     plt.close()
+
+pd.DataFrame(normality).to_csv("info/normal_distributions.csv", index=False)
 
 # boxplot cecha vs jakość
 for feature in features:
@@ -122,14 +149,32 @@ for feature in features:
     plt.clf()
     plt.close()
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Sztuczne Sieci Neuronowe
+
+
+
+
 # katalog na wyniki
 os.makedirs("results_nn", exist_ok=True)
 
 # wyczyszczenie katalogu z wynikami
-for filename in os.listdir("results_nn"):
-    file_path = os.path.join("results_nn", filename)
-    if os.path.isfile(file_path):
-        os.remove(file_path)
+# for filename in os.listdir("results_nn"):
+#     file_path = os.path.join("results_nn", filename)
+#     if os.path.isfile(file_path):
+#         os.remove(file_path)
 
 # wczytanie oczyszczonych danych
 df = pd.read_csv("apple_quality_cleaned.csv")
@@ -177,33 +222,40 @@ X_train_scaled = scaler.fit_transform(X_train)
 X_val_scaled = scaler.transform(X_val)
 X_test_scaled = scaler.transform(X_test)
 
-
-
-
-
-
-
-
-
-
-
-
-# Sztuczne Sieci Neuronowe
-
-
-
-
 # funkcja tworząca model
-def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None, optimizer='adam'):
+def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None, l1_rates=None, l2_rates=None, optimizer='adam'):
     model = Sequential()
 
-    # pętla po warstwach
-    for i, (units, dropout_rate) in enumerate(zip(hidden_layers, dropout_rates)):
-        if i == 0:
-            model.add(Dense(units, activation=activation, input_dim=input.shape[1]))
-        else:
-            model.add(Dense(units, activation=activation))
+    # liczba warstw
+    n_layers = len(hidden_layers)
 
+    # jeśli nie podamy regularyzacji
+    if dropout_rates is None:
+        dropout_rates = [0.0] * n_layers
+    if l1_rates is None:
+        l1_rates = [None] * n_layers
+    if l2_rates is None:
+        l2_rates = [None] * n_layers
+
+    # pętla po warstwach
+    for i, (units, dropout_rate, l1_rate, l2_rate) in enumerate(zip(hidden_layers, dropout_rates, l1_rates, l2_rates)):
+        # obiekt regularyzacji L1/L2/L1L2
+        if l1_rate is not None and l2_rate is not None:
+            reg = L1L2(l1=l1_rate, l2=l2_rate)
+        elif l1_rate is not None:
+            reg = L1(l1_rate)
+        elif l2_rate is not None:
+            reg = L2(l2_rate)
+        else:
+            reg = None
+
+        # dodanie warstwy w sieci,
+        if i == 0:
+            model.add(Dense(units, activation=activation, input_dim=input.shape[1], kernel_regularizer=reg))
+        else:
+            model.add(Dense(units, activation=activation, kernel_regularizer=reg))
+
+        # dodanie dropout
         model.add(Dropout(dropout_rate))
 
     # warstwa wyjściowa
@@ -218,74 +270,102 @@ def create_mlp_model(input, hidden_layers, activation='relu', dropout_rates=None
 
     return model
 
-# funkcja tworząca krzywe uczenia
-def plot_metric(history, metric, val_metric, title, ylabel, xlabel='Epoka', alias=None):
-    plt.plot(history.history[metric], label=f'Zbiór treningowy')
-    plt.plot(history.history[val_metric], label=f'Zbiór walidacyjny')
-    plt.title(title)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.legend()
-    plt.savefig(f"results_nn/{title.replace(' ', '_')}{('_' + alias) if alias else ''}.png")
-    plt.clf()
-    plt.close()
+# funkcja tworząca wykresy/macierz pomyłek i ROC
+def plot_model_summary(history, model, X_test, y_test, title, filename, labels=["Bad", "Good"]):
+    import matplotlib.pyplot as plt
+    from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc
+    import numpy as np
 
-# funkcja tworząca macierz pomyłek
-def plot_confusion_matrix(model, X_test, y_test, labels=["Bad", "Good"], title="cm", alias=None):
-    # predykcje modelu
-    y_pred_prob = model.predict(X_test)
+    # predykcje
+    y_pred_prob = model.predict(X_test).ravel()
     y_pred = (y_pred_prob > 0.5).astype(int)
 
     # macierz pomyłek
     cm = confusion_matrix(y_test, y_pred)
 
-    # zapis macierzy
+    # przygotowanie ROC
+    fpr, tpr, _ = roc_curve(y_test, y_pred_prob)
+    roc_auc = auc(fpr, tpr)
+
+    # układ wykresów: 2x2
+    fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+
+    # górny wiersz - krzywe uczenia
+    axs[0, 0].plot(history.history['accuracy'], label='Train Accuracy')
+    axs[0, 0].plot(history.history['val_accuracy'], label='Val Accuracy')
+    axs[0, 0].set_title('Learning Curve (Accuracy)')
+    axs[0, 0].set_xlabel('Epoch')
+    axs[0, 0].set_ylabel('Accuracy')
+    axs[0, 0].legend()
+
+    axs[0, 1].plot(history.history['loss'], label='Train Loss')
+    axs[0, 1].plot(history.history['val_loss'], label='Val Loss')
+    axs[0, 1].set_title('Learning Curve (Loss)')
+    axs[0, 1].set_xlabel('Epoch')
+    axs[0, 1].set_ylabel('Loss')
+    axs[0, 1].legend()
+
+    # dolny wiersz - macierz pomyłek i ROC
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
-    disp.plot(cmap='Reds')
-    plt.title(f"{title} - {alias}")
-    plt.savefig(f"results_nn/{title.replace(' ', '_')}{('_' + alias) if alias else ''}.png")
+    disp.plot(ax=axs[1, 0], cmap='Reds', colorbar=False)
+    axs[1, 0].set_title('Confusion Matrix')
+
+    axs[1, 1].plot(fpr, tpr, color='blue', label=f'AUC = {roc_auc:.2f}')
+    axs[1, 1].plot([0, 1], [0, 1], color='gray', linestyle='--')
+    axs[1, 1].set_title('ROC Curve')
+    axs[1, 1].set_xlabel('False Positive Rate')
+    axs[1, 1].set_ylabel('True Positive Rate')
+    axs[1, 1].legend(loc='lower right')
+
+    plt.suptitle(title)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.savefig(f"results_nn/{filename}.png")
     plt.clf()
     plt.close()
 
     return y_pred
 
-# tworzenie modeli
-models = {
-    "8-4": create_mlp_model(X_train_scaled, [8, 4], dropout_rates=[0.1, 0]),
-    "16-8": create_mlp_model(X_train_scaled, [16, 8], dropout_rates=[0.1, 0.1]),
-    "24-12": create_mlp_model(X_train_scaled, [24, 12], dropout_rates=[0.2, 0.1]),
-    "32-16": create_mlp_model(X_train_scaled, [32, 16], dropout_rates=[0.3, 0.2]),
-    "40-20-10": create_mlp_model(X_train_scaled, [40, 20, 10], dropout_rates=[0.2, 0.1, 0.1]),
-    "48-24-12": create_mlp_model(X_train_scaled, [48, 24, 12], dropout_rates=[0.3, 0.2, 0.2]),
-    "56-28-14": create_mlp_model(X_train_scaled, [56, 28, 14], dropout_rates=[0.3, 0.3, 0.2]),
-    "64-32-16": create_mlp_model(X_train_scaled, [64, 32, 16], dropout_rates=[0.4, 0.3, 0.2]),
-    "72-36-18-9": create_mlp_model(X_train_scaled, [72, 36, 18, 9], dropout_rates=[0.4, 0.2, 0.2, 0.1]),
-    "80-40-20-10": create_mlp_model(X_train_scaled, [80, 40, 20, 10], dropout_rates=[0.4, 0.3, 0.2, 0.1]),
-    "88-44-22-11": create_mlp_model(X_train_scaled, [88, 48, 24, 11], dropout_rates=[0.5, 0.3, 0.2, 0.1]),
-    "96-48-24-12": create_mlp_model(X_train_scaled, [96, 48, 24, 12], dropout_rates=[0.5, 0.4, 0.2, 0.1])
+# słownik na modele
+models = {}
+
+# konfiguracje modeli
+config = {
+    (8,): {"dropout": [0], "l1": [0], "l2": [0]},
+    (32,): {"dropout": [0.05], "l1": [0.0001], "l2": [0.0005]},
+    (64,): {"dropout": [0.1], "l1": [0.0002], "l2": [0.001]},
+    (128,): {"dropout": [0.15], "l1": [0.0003], "l2": [0.002]},
+    (256,): {"dropout": [0.2], "l1": [0.0004], "l2": [0.004]},
+    (512,): {"dropout": [0.25], "l1": [0.0005], "l2": [0.005]},
+    (32,16): {"dropout": [0.05,0.05], "l1": [0.0001]*2, "l2": [0.0005]*2},
+    (64,32): {"dropout": [0.1,0.05], "l1": [0.0002]*2, "l2": [0.001]*2},
+    (128,64): {"dropout": [0.15,0.1], "l1": [0.0003]*2, "l2": [0.002]*2},
+    (256,128): {"dropout": [0.2,0.15], "l1": [0.0004]*2, "l2": [0.004]*2},
+    (512,256): {"dropout": [0.25,0.2], "l1": [0.0005]*2, "l2": [0.005]*2},
+    (32,16,8): {"dropout": [0.05,0.05,0.05], "l1": [0.0001]*3, "l2": [0.0005]*3},
+    (64,32,16): {"dropout": [0.1,0.05,0.05], "l1": [0.0002]*3, "l2": [0.001]*3},
+    (128,64,32): {"dropout": [0.15,0.1,0.05], "l1": [0.0003]*3, "l2": [0.002]*3},
+    (256,128,64): {"dropout": [0.2,0.15,0.1], "l1": [0.0004]*3, "l2": [0.004]*3},
+    (512,256,128): {"dropout": [0.25,0.2,0.15], "l1": [0.0005]*3, "l2": [0.005]*3},
 }
 
-# # różne warianty wczesnego zatrzymania
-# early_stops = {
-#     "small": EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True, mode='auto', min_delta=0.005, baseline=None, verbose=2),
-#     "medium": EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True, mode='auto', min_delta=0.005, baseline=None, verbose=2),
-#     "large": EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True, mode='auto', min_delta=0.005, baseline=None, verbose=2),
-# }
-#
-# model_patience_map = {
-#     "8-4": early_stops["small"],
-#     "16-8": early_stops["small"],
-#     "24-12": early_stops["small"],
-#     "32-16": early_stops["small"],
-#     "40-20-10": early_stops["medium"],
-#     "48-24-12": early_stops["medium"],
-#     "56-28-14": early_stops["medium"],
-#     "64-32-16": early_stops["medium"],
-#     "72-36-18-9": early_stops["large"],
-#     "80-40-20-10": early_stops["large"],
-#     "88-44-22-11": early_stops["large"],
-#     "96-48-24-12": early_stops["large"]
-# }
+# optymalizatory
+optimizers = [
+    'adam',
+    # 'adamax',
+    # 'nadam'
+]
+
+# tworzenie modeli
+for opt in optimizers:
+    for layers, params in config.items():
+        models[f"{list(layers)} {opt}"] = create_mlp_model(
+            X_train_scaled,
+            layers,
+            dropout_rates=params["dropout"],
+            l1_rates=params["l1"],
+            l2_rates=params["l2"],
+            optimizer=opt
+        )
 
 # tablica na wyniki
 results = []
@@ -297,34 +377,38 @@ for name, model in models.items():
     # podsumowanie struktury modelu
     model.summary()
 
+    # mechanizm wczesnego zatrzymania
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=10,
+        min_delta=0.001,
+        restore_best_weights=True,
+        verbose=1,
+    )
+
     # uczenie modelu
     history = model.fit(
         X_train_scaled, y_train,
         validation_data=(X_val_scaled, y_val),
-        epochs=512,
-        batch_size=16,
-        # callbacks=[model_patience_map[name]],
+        epochs=1000,
+        batch_size=32,
+        callbacks=[early_stopping],
+        shuffle=True,
         verbose=2
     )
 
     # ewaluacja na zbiorze testowym
     test_loss, test_accuracy = model.evaluate(X_test_scaled, y_test)
 
-    # dokładność
-    plot_metric(history, metric='accuracy', val_metric='val_accuracy', title='lc - accuracy', ylabel='Dokładność', alias=name)
-
-    # strata
-    plot_metric(history, metric='loss', val_metric='val_loss', title='lc - loss', ylabel='Strata', alias=name)
-
-    # macierz pomyłek i predykcje
-    y_pred = plot_confusion_matrix(model, X_test_scaled, y_test, alias=name)
+    # predykcje i wykresy
+    y_pred = plot_model_summary(history, model, X_test_scaled, y_test, title=f"Model/Optimizer: {name}", filename=f"{name} Summary")
 
     # raport klasyfikacji
     report = classification_report(y_test, y_pred, target_names=["Bad", "Good"], output_dict=True)
 
-    # zapis wyników do listy
+    # zapis wyników do listy (metryki dla klasy good i bad)
     results.append({
-        'Model': name,
+        'Model/Optimizer': name,
         'Test Loss': test_loss,
         'Test Accuracy': test_accuracy,
         'Precision (Good)': report['Good']['precision'],
@@ -337,39 +421,11 @@ for name, model in models.items():
 
 # zapis tabeli wyników wszystkich modeli
 results_df = pd.DataFrame(results)
+
+# sortowanie, najpierw po Test Accuracy malejąco, potem po Test Loss rosnąco
+results_df = results_df.sort_values(by=['Test Accuracy', 'Test Loss'], ascending=[False, True])
 results_df.to_csv("results_nn/classification_results.csv", index=False)
 
-# porównanie dokładności modeli
-for result in results:
-    plt.bar(result['Model'], result['Test Accuracy'])
-plt.title("Porównanie dokładności modeli")
-plt.xlabel("Model")
-plt.ylabel("Test Accuracy")
-plt.ylim(0, 1)
-plt.xticks(rotation=90)
-plt.grid(axis='y', linestyle='--', alpha=0.7)
-plt.tight_layout()
-plt.savefig("results_nn/accuracy_comparison.png")
-plt.clf()
-plt.close()
-
-# analiza ROC/AUC dla każdej sieci
-plt.figure(figsize=(8,6))
-for name, model in models.items():
-    y_pred_prob = model.predict(X_test_scaled).ravel()  # predykcje prawdopodobieństwa
-    fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob)
-    roc_auc = auc(fpr, tpr)
-    plt.plot(fpr, tpr, label=f'Model {name} (AUC = {roc_auc:.3f})')
-
-plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
-plt.title("Krzywe ROC modeli")
-plt.xlabel("False Positive Rate")
-plt.ylabel("True Positive Rate")
-plt.legend(loc="lower right")
-plt.tight_layout()
-plt.savefig("results_nn/roc_auc.png")
-plt.clf()
-plt.close()
 
 
 
@@ -496,7 +552,7 @@ df_cv_svm_results.to_csv("results_ml/cv_svm_results.csv", index=False)
 
 
 
-# Bagging Classifier
+# Bagging
 # zakresy parametrów
 param_dist = {
     'n_estimators': [50, 100, 150, 200, 250],
@@ -661,7 +717,7 @@ for name, model in models.items():
     cm = confusion_matrix(y_test, y_pred)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Bad", "Good"])
     disp.plot(cmap='Reds')
-    plt.title(f"Macierz pomyłek - {name}")
+    plt.title(f"cm - {name}")
     plt.savefig(f"results_ml/cm_{name.replace(' ', '_')}.png")
     plt.close()
 
@@ -690,7 +746,7 @@ plt.bar(results_df['Model'], results_df['Accuracy'], color='skyblue')
 plt.title("Porównanie dokładności modeli")
 plt.ylabel("Accuracy")
 plt.ylim(0,1)
-plt.xticks(rotation=90)
+plt.xticks(rotation=80)
 plt.grid(axis='y', linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.savefig("results_ml/accuracy_comparison.png")
