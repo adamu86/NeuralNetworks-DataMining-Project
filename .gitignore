@@ -3,3 +3,4 @@
 /.idea
 /results_nn
 *.h5
+/results_cnn
