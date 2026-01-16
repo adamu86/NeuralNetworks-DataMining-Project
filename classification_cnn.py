@@ -49,10 +49,10 @@ def plot_metric(history, metric, val_metric, title, ylabel):
     plt.plot(history.history[metric], label='train')
     plt.plot(history.history[val_metric], label='val')
     plt.title(title)
-    plt.xlabel('epoch')
+    plt.xlabel('Epoch')
     plt.ylabel(ylabel)
     plt.legend()
-    plt.savefig(f"results_cnn/{title.replace(' ', '_')}.png")
+    plt.savefig(f"results_cnn/{title}.png")
     plt.close()
 
 def evaluate_model(model, name):
@@ -65,6 +65,7 @@ def evaluate_model(model, name):
 
     # raport
     report = classification_report(y_test, y_pred, output_dict=True)
+
     return {
         'Model': name,
         'Accuracy': test_acc,
@@ -179,8 +180,8 @@ for name, model in models_dict.items():
     )
 
     # krzywe uczenia
-    plot_metric(history, 'accuracy', 'val_accuracy', f'Accuracy {name}', 'accuracy')
-    plot_metric(history, 'loss', 'val_loss', f'Loss {name}', 'loss')
+    plot_metric(history, 'accuracy', 'val_accuracy', f'Accuracy {name}', 'Accuracy')
+    plot_metric(history, 'loss', 'val_loss', f'Loss {name}', 'Loss')
 
     res = evaluate_model(model, name)
     results.append(res)
