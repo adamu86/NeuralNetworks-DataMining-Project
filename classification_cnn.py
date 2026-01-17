@@ -20,10 +20,11 @@ tf.random.set_seed(RANDOM_STATE)
 # katalog na wyniki
 os.makedirs("results_cnn", exist_ok=True)
 
-# wczytanie danych
-(X_train, y_train), (X_test, y_test) = datasets.cifar100.load_data(label_mode='coarse')
+# liczba klas
+classes = 100
 
-classes = 20
+# wczytanie danych
+(X_train, y_train), (X_test, y_test) = datasets.cifar100.load_data(label_mode='coarse' if classes == 20 else 'fine')
 
 print("Train:", X_train.shape, "Test:", X_test.shape)
 print("Przykład etykiety:", y_train[0])
@@ -69,7 +70,7 @@ def plot_metric(history, metric, val_metric, title, ylabel):
     plt.xlabel('Epoch')
     plt.ylabel(ylabel)
     plt.legend()
-    plt.savefig(f"results_cnn/{title} (coarse).png")
+    plt.savefig(f"results_cnn/{title}{' (coarse)' if classes == 20 else ' (fine)'}.png")
     plt.close()
 
 def evaluate_model(model, name):
@@ -164,7 +165,7 @@ models_dict["cnn_large"] = models.Sequential([
 
 # model 4
 models_dict["cnn_xlarge"] = models.Sequential([
-    layers.Conv2D(64, 3, padding='same', activation='relu'),
+    layers.Conv2D(64, 3, padding='same', activation='relu', input_shape=(32,32,3)),
     layers.BatchNormalization(),
     layers.Conv2D(64, 3, padding='same', activation='relu'),
     layers.BatchNormalization(),
@@ -191,8 +192,10 @@ models_dict["cnn_xlarge"] = models.Sequential([
     layers.Dense(classes, activation='softmax')
 ])
 
+# lista na wyniki
 results = []
 
+# pętla po modelach
 for name, model in models_dict.items():
     print(f"\nModel: {name}")
 
@@ -243,8 +246,8 @@ for name, model in models_dict.items():
     # zapis wyników po każdym modelu
     df_results = pd.DataFrame(results)
     df_results = df_results.round(4)
-    df_results.to_csv(f"results_cnn/{name} Results (coarse).csv", index=False)
+    df_results.to_csv(f"results_cnn/{name} Results{' (coarse)' if classes == 20 else ' (fine)'}.csv", index=False)
 
 # zapis wyników
 df_results = pd.DataFrame(results)
-df_results.to_csv("results_cnn/results (coarse).csv", index=False)
+df_results.to_csv(f"results_cnn/results{' (coarse)' if classes == 20 else ' (fine)'}.csv", index=False)
