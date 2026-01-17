@@ -3,9 +3,9 @@ import time
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tensorflow.keras import datasets, layers, models, regularizers
+from tensorflow.keras import datasets, layers, models
 import matplotlib.pyplot as plt
-from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import classification_report
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 import random
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
@@ -22,7 +22,6 @@ tf.random.set_seed(RANDOM_STATE)
 os.makedirs("results_cnn", exist_ok=True)
 
 # liczba klas
-classes = 100
 
 # wczytanie danych
 (X_train, y_train), (X_test, y_test) = datasets.cifar100.load_data(label_mode='coarse' if classes == 20 else 'fine')
@@ -61,7 +60,8 @@ datagen = ImageDataGenerator(
     width_shift_range=0.05,
     height_shift_range=0.05,
     shear_range=0.05,
-    zoom_range=0.05
+    zoom_range=0.05,
+    fill_mode='nearest'
 )
 datagen.fit(X_train_sub)
 
@@ -194,38 +194,6 @@ models_dict["cnn_xlarge"] = models.Sequential([
     layers.Dense(classes, activation='softmax')
 ])
 
-# wartość regularyzacji L2
-l2_reg = 0.0005
-
-# model 5
-models_dict["cnn_xlarge_reg"] = models.Sequential([
-    layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg), input_shape=(32,32,3)),
-    layers.BatchNormalization(),
-    layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
-    layers.BatchNormalization(),
-    layers.MaxPooling2D(),
-    layers.Dropout(0.25),
-
-    layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
-    layers.BatchNormalization(),
-    layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
-    layers.BatchNormalization(),
-    layers.MaxPooling2D(),
-    layers.Dropout(0.35),
-
-    layers.Conv2D(256, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
-    layers.BatchNormalization(),
-    layers.Conv2D(256, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
-    layers.BatchNormalization(),
-    layers.MaxPooling2D(),
-    layers.Dropout(0.45),
-
-    layers.Flatten(),
-    layers.Dense(512, activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
-    layers.Dropout(0.5),
-    layers.Dense(classes, activation='softmax')
-])
-
 # lista na wyniki
 results = []
 
@@ -266,7 +234,7 @@ for name, model in models_dict.items():
 
     # uczenie
     history = model.fit(
-        datagen.flow(X_train_sub, y_train_sub, batch_size=128),
+        datagen.flow(X_train_sub, y_train_sub, batch_size=64),
         validation_data=(X_val, y_val),
         callbacks=[early_stopping, reduce_lr],
         epochs=100,
