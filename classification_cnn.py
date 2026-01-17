@@ -227,7 +227,7 @@ for name, model in models_dict.items():
         datagen.flow(X_train_sub, y_train_sub, batch_size=128),
         validation_data=(X_val, y_val),
         epochs=100,
-        callbacks=[early_stopping],
+        callbacks=[early_stopping, reduce_lr],
         verbose=1
     )
 
