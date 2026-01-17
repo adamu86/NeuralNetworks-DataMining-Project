@@ -1,8 +1,9 @@
 import os
+import time
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tensorflow.keras import datasets, layers, models
+from tensorflow.keras import datasets, layers, models, regularizers
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -59,7 +60,8 @@ datagen = ImageDataGenerator(
     rotation_range=10,
     width_shift_range=0.05,
     height_shift_range=0.05,
-    horizontal_flip=True
+    shear_range=0.05,
+    zoom_range=0.05
 )
 datagen.fit(X_train_sub)
 
@@ -192,6 +194,38 @@ models_dict["cnn_xlarge"] = models.Sequential([
     layers.Dense(classes, activation='softmax')
 ])
 
+# wartość regularyzacji L2
+l2_reg = 0.0005
+
+# model 5
+models_dict["cnn_xlarge_reg"] = models.Sequential([
+    layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg), input_shape=(32,32,3)),
+    layers.BatchNormalization(),
+    layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(),
+    layers.Dropout(0.25),
+
+    layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
+    layers.BatchNormalization(),
+    layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(),
+    layers.Dropout(0.35),
+
+    layers.Conv2D(256, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
+    layers.BatchNormalization(),
+    layers.Conv2D(256, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(),
+    layers.Dropout(0.45),
+
+    layers.Flatten(),
+    layers.Dense(512, activation='relu', kernel_regularizer=regularizers.l2(l2_reg)),
+    layers.Dropout(0.5),
+    layers.Dense(classes, activation='softmax')
+])
+
 # lista na wyniki
 results = []
 
@@ -213,7 +247,7 @@ for name, model in models_dict.items():
     early_stopping = EarlyStopping(
         monitor='val_loss',
         patience=10,
-        min_delta=0.0005,
+        min_delta=0.001,
         restore_best_weights=True,
         verbose=1,
     )
@@ -227,20 +261,34 @@ for name, model in models_dict.items():
         verbose=1
     )
 
+    # pomiar czasu
+    start_time = time.time()
+
     # uczenie
     history = model.fit(
         datagen.flow(X_train_sub, y_train_sub, batch_size=128),
         validation_data=(X_val, y_val),
-        epochs=100,
         callbacks=[early_stopping, reduce_lr],
+        epochs=100,
+        shuffle=True,
         verbose=1
     )
+
+    # koniec pomiaru czasu
+    end_time = time.time()
+    elapsed = end_time - start_time
 
     # krzywe uczenia
     plot_metric(history, 'accuracy', 'val_accuracy', f'{name} Accuracy', 'Accuracy')
     plot_metric(history, 'loss', 'val_loss', f'{name} Loss', 'Loss')
 
+    # epoka najlepszego wyniku na walidacji
+    best_epoch = np.argmin(history.history['val_loss']) + 1
+
+    # ewaluacja i dodanie wyników do listy
     res = evaluate_model(model, name)
+    res['Train Time (s)'] = round(elapsed, 2)
+    res['Best Epoch'] = best_epoch
     results.append(res)
 
     # zapis wyników po każdym modelu
