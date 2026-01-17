@@ -5,8 +5,11 @@ import tensorflow as tf
 from tensorflow.keras import datasets, layers, models
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 import random
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.model_selection import train_test_split
+
 
 # ustawienie ziarna
 RANDOM_STATE = 42
@@ -23,7 +26,7 @@ os.makedirs("results_cnn", exist_ok=True)
 print("Train:", X_train.shape, "Test:", X_test.shape)
 print("Przykład etykiety:", y_train[0])
 
-# rzut oka na kilka obrazków
+# podgląd kilku obrazków
 plt.figure(figsize=(8,4))
 for i in range(10):
     plt.subplot(2,5,i+1)
@@ -41,13 +44,25 @@ X_test = X_test.astype("float32") / 255.0
 y_train = y_train.flatten()
 y_test = y_test.flatten()
 
-# konwersja do one-hot
-y_train_cat = tf.keras.utils.to_categorical(y_train, 100)
-y_test_cat = tf.keras.utils.to_categorical(y_test, 100)
+# podział na trening i walidację
+X_train_sub, X_val, y_train_sub, y_val = train_test_split(
+    X_train, y_train, test_size=0.2, random_state=RANDOM_STATE, stratify=y_train
+)
+
+tf.config.optimizer.set_jit('autoclustering')
+
+# augementacja danych
+datagen = ImageDataGenerator(
+    rotation_range=10,
+    width_shift_range=0.05,
+    height_shift_range=0.05,
+    horizontal_flip=True
+)
+datagen.fit(X_train_sub)
 
 def plot_metric(history, metric, val_metric, title, ylabel):
-    plt.plot(history.history[metric], label='train')
-    plt.plot(history.history[val_metric], label='val')
+    plt.plot(history.history[metric], label=f'Train {ylabel}')
+    plt.plot(history.history[val_metric], label=f'Val {ylabel}')
     plt.title(title)
     plt.xlabel('Epoch')
     plt.ylabel(ylabel)
@@ -56,8 +71,7 @@ def plot_metric(history, metric, val_metric, title, ylabel):
     plt.close()
 
 def evaluate_model(model, name):
-    print(f"\nModel {name} ocena testowa")
-    test_loss, test_acc = model.evaluate(X_test, y_test_cat, verbose=0)
+    test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)
     print(f"Loss: {test_loss:.4f}, Accuracy: {test_acc:.4f}")
 
     # predykcja
@@ -68,7 +82,8 @@ def evaluate_model(model, name):
 
     return {
         'Model': name,
-        'Accuracy': test_acc,
+        'Test Loss': test_loss,
+        'Test Accuracy': test_acc,
         'Precision (avg)': report['weighted avg']['precision'],
         'Recall (avg)': report['weighted avg']['recall'],
         'F1 (avg)': report['weighted avg']['f1-score']
@@ -77,7 +92,7 @@ def evaluate_model(model, name):
 # MODELE CNN
 models_dict = {}
 
-# Model 1 – mały CNN
+# model 1
 models_dict["cnn_small"] = models.Sequential([
     layers.Conv2D(32, (3,3), activation='relu', input_shape=(32,32,3)),
     layers.BatchNormalization(),
@@ -94,9 +109,9 @@ models_dict["cnn_small"] = models.Sequential([
     layers.Dense(100, activation='softmax')
 ])
 
-# Model 2 – większa sieć
+# model 2
 models_dict["cnn_medium"] = models.Sequential([
-    layers.Conv2D(32, 3, padding='same', activation='relu'),
+    layers.Conv2D(32, 3, padding='same', activation='relu', input_shape=(32,32,3)),
     layers.BatchNormalization(),
     layers.Conv2D(32, 3, padding='same', activation='relu'),
     layers.BatchNormalization(),
@@ -116,9 +131,9 @@ models_dict["cnn_medium"] = models.Sequential([
     layers.Dense(100, activation='softmax'),
 ])
 
-# Model 3 – duży CNN
+# model 3
 models_dict["cnn_large"] = models.Sequential([
-    layers.Conv2D(32, 3, padding='same', activation='relu'),
+    layers.Conv2D(32, 3, padding='same', activation='relu', input_shape=(32,32,3)),
     layers.BatchNormalization(),
     layers.Conv2D(32, 3, padding='same', activation='relu'),
     layers.BatchNormalization(),
@@ -145,6 +160,35 @@ models_dict["cnn_large"] = models.Sequential([
     layers.Dense(100, activation='softmax')
 ])
 
+# model 4
+models_dict["cnn_xlarge"] = models.Sequential([
+    layers.Conv2D(64, 3, padding='same', activation='relu', input_shape=(32,32,3)),
+    layers.BatchNormalization(),
+    layers.Conv2D(64, 3, padding='same', activation='relu'),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(),
+    layers.Dropout(0.25),
+
+    layers.Conv2D(128, 3, padding='same', activation='relu'),
+    layers.BatchNormalization(),
+    layers.Conv2D(128, 3, padding='same', activation='relu'),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(),
+    layers.Dropout(0.35),
+
+    layers.Conv2D(256, 3, padding='same', activation='relu'),
+    layers.BatchNormalization(),
+    layers.Conv2D(256, 3, padding='same', activation='relu'),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(),
+    layers.Dropout(0.45),
+
+    layers.Flatten(),
+    layers.Dense(512, activation='relu'),
+    layers.Dropout(0.5),
+    layers.Dense(100, activation='softmax')
+])
+
 results = []
 
 for name, model in models_dict.items():
@@ -153,7 +197,7 @@ for name, model in models_dict.items():
     # kompilacja
     model.compile(
         optimizer='adam',
-        loss='categorical_crossentropy',
+        loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
 
@@ -163,31 +207,41 @@ for name, model in models_dict.items():
     # mechanizm wczesnego zatrzymania
     early_stopping = EarlyStopping(
         monitor='val_loss',
-        patience=3,
-        min_delta=0.001,
+        patience=10,
+        min_delta=0.0005,
         restore_best_weights=True,
         verbose=1,
     )
 
+    # zmniejszanie lr jeśli model utknie
+    reduce_lr = ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.5,
+        patience=5,
+        min_lr=0.00001,
+        verbose=1
+    )
+
     # uczenie
     history = model.fit(
-        X_train, y_train_cat,
-        validation_split=0.2,
-        epochs=1000,
-        batch_size=64,
+        datagen.flow(X_train_sub, y_train_sub, batch_size=128),
+        validation_data=(X_val, y_val),
+        epochs=100,
         callbacks=[early_stopping],
         verbose=1
     )
 
     # krzywe uczenia
-    plot_metric(history, 'accuracy', 'val_accuracy', f'Accuracy {name}', 'Accuracy')
-    plot_metric(history, 'loss', 'val_loss', f'Loss {name}', 'Loss')
+    plot_metric(history, 'accuracy', 'val_accuracy', f'{name} Accuracy', 'Accuracy')
+    plot_metric(history, 'loss', 'val_loss', f'{name} Loss', 'Loss')
 
     res = evaluate_model(model, name)
     results.append(res)
 
+    # zapis wyników po każdym modelu
+    df_results = pd.DataFrame(results)
+    df_results.to_csv(f"results_cnn/{name} Results.csv", index=False)
+
 # zapis wyników
 df_results = pd.DataFrame(results)
 df_results.to_csv("results_cnn/results.csv", index=False)
-
-print(df_results)
