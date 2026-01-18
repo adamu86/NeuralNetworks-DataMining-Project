@@ -305,7 +305,7 @@ for name, model in models.items():
     # uczenie modelu
     history = model.fit(
         X_train_scaled, y_train,
-        validation_split=0.2,
+        validation_split=0.25,
         epochs=1000,
         batch_size=32,
         callbacks=[early_stopping],
@@ -416,7 +416,7 @@ for opt in optimizers:
     # uczenie
     history = new_model.fit(
         X_train_scaled, y_train,
-        validation_split=0.2,
+        validation_split=0.25,
         epochs=1000,
         batch_size=32,
         callbacks=[early_stopping, reduce_lr],
