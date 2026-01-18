@@ -20,7 +20,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve,
 warnings.filterwarnings("ignore")
 
 
-# ustalenie ziarna dla powtarzalności wyników
+# ustalenie stałego ziarna (powtarzalnosci wyników)
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 random.seed(RANDOM_STATE)
@@ -337,7 +337,7 @@ for name, model in models.items():
 # zapis tabeli wyników wszystkich modeli
 results_df = pd.DataFrame(results)
 
-# zaokrąglenie do czytelności
+# zaokrąglenie (do czytelności)
 results_df = results_df.round(4)
 
 # sortowanie, najpierw po Test Accuracy malejąco, potem po Test Loss rosnąco
@@ -354,7 +354,7 @@ plt.tight_layout()
 plt.savefig("results_nn/Accuracy Barplot.png", dpi=300, bbox_inches='tight')
 plt.close()
 
-# krzywa roc
+# krzywa roc i auc
 plt.figure()
 for name, model in models.items():
     y_prob = model.predict(X_test_scaled).ravel()
@@ -467,7 +467,7 @@ plt.tight_layout()
 plt.savefig("results_nn/Best Model Optimizers.png", dpi=300, bbox_inches='tight')
 plt.close()
 
-# krzywa roc
+# krzywa roc i auc
 plt.figure()
 for name, model in models.items():
     probs = model.predict(X_test_scaled).ravel()

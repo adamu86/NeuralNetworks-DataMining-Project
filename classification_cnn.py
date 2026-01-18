@@ -12,7 +12,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from sklearn.model_selection import train_test_split
 
 
-# ustawienie ziarna
+# ustawienie stałego ziarna
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 random.seed(RANDOM_STATE)
@@ -22,7 +22,7 @@ tf.random.set_seed(RANDOM_STATE)
 os.makedirs("results_cnn", exist_ok=True)
 
 # liczba klas
-classes = 20
+classes = 100
 
 # wczytanie danych
 (X_train, y_train), (X_test, y_test) = datasets.cifar100.load_data(label_mode='coarse' if classes == 20 else 'fine')
@@ -37,7 +37,7 @@ for i in range(10):
     plt.imshow(X_train[i])
     plt.axis('off')
 plt.tight_layout()
-plt.savefig("results_cnn/podglad_probek.png")
+plt.savefig("results_cnn/Overview.png")
 plt.close()
 
 # normalizacja
@@ -57,15 +57,16 @@ tf.config.optimizer.set_jit('autoclustering')
 
 # augementacja danych
 datagen = ImageDataGenerator(
-    rotation_range=10,
-    width_shift_range=0.05,
-    height_shift_range=0.05,
-    shear_range=0.05,
-    zoom_range=0.05,
-    fill_mode='nearest'
+    rotation_range=10, # losowa rotacja w zakresie +-10 stopni
+    width_shift_range=0.05, # przesunięcie obrazu w poziomie do 5% szerekości
+    height_shift_range=0.05, # przesunięcie obrazu w pionie do 5% wysokości
+    shear_range=0.05, # lekkie ścięcie obrazu w losowym kierunku
+    zoom_range=0.05, # losowe przybliżenie/oddalenie obrazu o +-5%
+    fill_mode='nearest' # sposób wypełniania brakujących pikseli po przeksztalceniach
 )
 datagen.fit(X_train_sub)
 
+# funkcja generująca krzywe uczenia (loss albo accuracy)
 def plot_metric(history, metric, val_metric, title, ylabel):
     plt.plot(history.history[metric], label=f'Train {ylabel}')
     plt.plot(history.history[val_metric], label=f'Val {ylabel}')
@@ -76,12 +77,13 @@ def plot_metric(history, metric, val_metric, title, ylabel):
     plt.savefig(f"results_cnn/{title}{' (coarse)' if classes == 20 else ' (fine)'}.png")
     plt.close()
 
+# ewaluacja modelu (metryki)
 def evaluate_model(model, name):
-    test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)
-    print(f"Loss: {test_loss:.4f}, Accuracy: {test_acc:.4f}")
+    # ewaluacja
+    test_loss, test_acc = model.evaluate(X_test, y_test)
 
     # predykcja
-    y_pred = np.argmax(model.predict(X_test, verbose=0), axis=1)
+    y_pred = np.argmax(model.predict(X_test), axis=1)
 
     # raport
     report = classification_report(y_test, y_pred, output_dict=True)
@@ -198,7 +200,7 @@ models_dict["cnn_xlarge"] = models.Sequential([
 # lista na wyniki
 results = []
 
-# pętla po modelach
+# pętla po modelach w slowniku
 for name, model in models_dict.items():
     print(f"\nModel: {name}")
 
@@ -260,11 +262,7 @@ for name, model in models_dict.items():
     res['Best Epoch'] = best_epoch
     results.append(res)
 
-    # zapis wyników po każdym modelu
-    df_results = pd.DataFrame(results)
-    df_results = df_results.round(4)
-    df_results.to_csv(f"results_cnn/{name} Results{' (coarse)' if classes == 20 else ' (fine)'}.csv", index=False)
-
-# zapis wyników
+# zapis wszystkich wyników
 df_results = pd.DataFrame(results)
+df_results = df_results.round(4)
 df_results.to_csv(f"results_cnn/results{' (coarse)' if classes == 20 else ' (fine)'}.csv", index=False)
