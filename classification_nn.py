@@ -10,7 +10,7 @@ import tensorflow as tf
 from scipy.stats import shapiro
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.regularizers import L1, L2, L1L2
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
@@ -398,10 +398,19 @@ for opt in optimizers:
     # wczesne zatrzymanie
     early_stopping = EarlyStopping(
         monitor='val_loss',
-        patience=10,
-        min_delta=0.001,
+        patience=20,
+        min_delta=0.0005,
         restore_best_weights=True,
         verbose=1,
+    )
+
+    # zmniejszanie lr jeśli model utknie
+    reduce_lr = ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.5,
+        patience=5,
+        min_lr=0.000001,
+        verbose=1
     )
 
     # uczenie
@@ -410,7 +419,7 @@ for opt in optimizers:
         validation_split=0.2,
         epochs=1000,
         batch_size=32,
-        callbacks=[early_stopping],
+        callbacks=[early_stopping, reduce_lr],
         verbose=2
     )
 

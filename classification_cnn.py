@@ -22,6 +22,7 @@ tf.random.set_seed(RANDOM_STATE)
 os.makedirs("results_cnn", exist_ok=True)
 
 # liczba klas
+classes = 20
 
 # wczytanie danych
 (X_train, y_train), (X_test, y_test) = datasets.cifar100.load_data(label_mode='coarse' if classes == 20 else 'fine')
