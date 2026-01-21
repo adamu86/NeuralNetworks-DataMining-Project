@@ -3,13 +3,15 @@ import random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import warnings
 import seaborn as sns
-import tensorflow as tf
 from scipy.stats import shapiro
+from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+from sklearn.inspection import permutation_importance
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import PolynomialFeatures, PowerTransformer, QuantileTransformer, StandardScaler
 from sklearn.model_selection import train_test_split, cross_val_score, RandomizedSearchCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, BaggingClassifier, GradientBoostingClassifier
@@ -26,14 +28,13 @@ warnings.filterwarnings("ignore")
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 random.seed(RANDOM_STATE)
-tf.random.set_seed(RANDOM_STATE)
 
 # katalog na informacje o zbiorze
 os.makedirs("info", exist_ok=True)
 
 # wczytanie danych
 df = pd.read_csv("apple_quality.csv")
-features = ["Size", "Weight", "Sweetness", "Crunchiness", "Juiciness", "Ripeness", "Acidity"]
+features = df.drop(columns=["Quality", "A_id"]).columns.tolist()
 labels = ["Quality"]
 
 # informacje o zbiorze
@@ -76,13 +77,32 @@ plt.close()
 
 # macierz korelacji (Spearman)
 corr = df.corr()['Quality'].sort_values()
-print("\n", corr)
+print("\n", corr, '\n')
 plt.figure()
 sns.heatmap(df.corr(method='spearman'), annot=True, cmap='coolwarm')
 plt.tight_layout()
 plt.savefig("info/correlation_matrix_spearman.png")
 plt.clf()
 plt.close()
+
+# wartości odstające
+print("\nWartości odstające:\n")
+
+for feature in features:
+    Q1 = df[feature].quantile(0.25)
+    Q3 = df[feature].quantile(0.75)
+    IQR = Q3 - Q1
+    lower = Q1 - 1.5*IQR
+    upper = Q3 + 1.5*IQR
+    count = df[(df[feature] < lower) | (df[feature] > upper)].shape[0]
+
+    print(f"{feature} - outliery: {count} ({count / df.shape[0] * 100:.2f}%)")
+
+# skośne cechy
+skewed_features = ["Juiciness", "Sweetness", "Weight", "Crunchiness"]
+
+pt = PowerTransformer(method='yeo-johnson')
+df[skewed_features] = pt.fit_transform(df[skewed_features])
 
 # histogramy cech
 normality = []
@@ -107,6 +127,8 @@ for feature in features:
     plt.clf()
     plt.close()
 
+
+
 # katalog na wyniki
 os.makedirs("results_ml", exist_ok=True)
 
@@ -128,7 +150,7 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 # info o liczebności próbek
-print("Rozmiar zbioru treningowego:", X_train.shape[0])
+print("\nRozmiar zbioru treningowego:", X_train.shape[0])
 print("\nRozmiar zbioru testowego:", X_test.shape[0])
 
 # info o liczebności klas
@@ -141,6 +163,42 @@ print(y_test.value_counts())
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
+
+# wyliczamy MI (cecha vs klasa)
+mi = mutual_info_classif(
+    X,
+    y,
+    n_neighbors=5,
+    random_state=42
+)
+
+mi_df = pd.DataFrame({
+    "feature": features,
+    "mi_score": mi
+}).sort_values("mi_score", ascending=False)
+
+print("\nMI (cecha - klasa):\n", mi_df)
+
+# MI między cechami
+mi_matrix = pd.DataFrame(index=features, columns=features, dtype=float)
+
+# liczenie MI dla każdej pary cech
+for f1 in features:
+    for f2 in features:
+        if f1 == f2:
+            mi_matrix.loc[f1, f2] = 0
+        else:
+            mi_matrix.loc[f1, f2] = mutual_info_regression(
+                df[[f1]], df[f2], random_state=42
+            )[0]
+
+# wizualizacja
+print("\nMI (cecha - cecha):\n", mi_matrix)
+
+
+
+
+
 
 # słownik na modele, na razie tylko te, przy których nie stroimy hiperparametrów
 models = {
@@ -270,7 +328,10 @@ param_dist = {
 
 # RandomizedSearchCV i dopasowanie
 random_search_bag = RandomizedSearchCV(
-    estimator=BaggingClassifier(estimator=DecisionTreeClassifier(random_state=RANDOM_STATE), random_state=RANDOM_STATE),
+    estimator=BaggingClassifier(
+        estimator=DecisionTreeClassifier(random_state=RANDOM_STATE), 
+        random_state=RANDOM_STATE
+    ),
     param_distributions=param_dist,
     n_iter=20,
     scoring='accuracy',
@@ -312,7 +373,7 @@ param_dist = {
 }
 
 # RandomizedSearchCV i dopasowanie
-random_search = RandomizedSearchCV(
+random_search_rf = RandomizedSearchCV(
     estimator=RandomForestClassifier(random_state=RANDOM_STATE),
     param_distributions=param_dist,
     n_iter=20,
@@ -320,11 +381,11 @@ random_search = RandomizedSearchCV(
     cv=folds,
     random_state=RANDOM_STATE
 )
-random_search.fit(X_train_scaled, y_train)
+random_search_rf.fit(X_train_scaled, y_train)
 
 # najlepsze parametry
-best_params = random_search.best_params_
-best_score = random_search.best_score_
+best_params = random_search_rf.best_params_
+best_score = random_search_rf.best_score_
 
 # zapis najlepszego modelu do słownika
 best_rf = RandomForestClassifier(
@@ -338,11 +399,11 @@ models.update({f"RF, n={best_params['n_estimators']}, depth={best_params['max_de
 
 # zapis wyników wszystkich testowanych kombinacji
 df_cv_rf_results = pd.DataFrame({
-    'n_estimators': random_search.cv_results_['param_n_estimators'].data,
-    'max_depth': random_search.cv_results_['param_max_depth'].data,
-    'min_samples_leaf': random_search.cv_results_['param_min_samples_leaf'].data,
-    'min_samples_split': random_search.cv_results_['param_min_samples_split'].data,
-    'Accuracy': random_search.cv_results_['mean_test_score']
+    'n_estimators': random_search_rf.cv_results_['param_n_estimators'].data,
+    'max_depth': random_search_rf.cv_results_['param_max_depth'].data,
+    'min_samples_leaf': random_search_rf.cv_results_['param_min_samples_leaf'].data,
+    'min_samples_split': random_search_rf.cv_results_['param_min_samples_split'].data,
+    'Accuracy': random_search_rf.cv_results_['mean_test_score']
 })
 df_cv_rf_results.to_csv("results_ml/cv_rf_results.csv", index=False)
 
@@ -401,29 +462,42 @@ for name, model in models.items():
     # uczenie
     model.fit(X_train_scaled, y_train)
 
-    # predykcje
+    # predykcje; jeśli model ma predict_proba, to bierzemy prawdopodobieństwa
     y_pred = model.predict(X_test_scaled)
-    y_pred_prob = model.predict_proba(X_test_scaled)[:, 1] if hasattr(model, "predict_proba") else model.decision_function(X_test_scaled)
+    if hasattr(model, "predict_proba"):
+        y_pred_prob = model.predict_proba(X_test_scaled)[:, 1]
+    else:
+        y_pred_prob = model.decision_function(X_test_scaled)
 
     # dokładność
-    acc = accuracy_score(y_test, y_pred)
+    accuracy = accuracy_score(y_test, y_pred)
 
     # raport klasyfikacji
     report = classification_report(y_test, y_pred, output_dict=True)
 
     results.append({
-        "Model": name,
-        "Accuracy": acc,
-        "Precision (Good)": report.get("1", {}).get("precision", np.nan),
-        "Recall (Good)": report.get("1", {}).get("recall", np.nan),
-        "F1-Score (Good)": report.get("1", {}).get("f1-score", np.nan),
-        "Precision (Bad)": report.get("0", {}).get("precision", np.nan),
-        "Recall (Bad)": report.get("0", {}).get("recall", np.nan),
-        "F1-Score (Bad)": report.get("0", {}).get("f1-score", np.nan)
+        'Model': name,
+        'Accuracy': accuracy,
+        'Precision (Good)': report['1']['precision'],
+        'Recall (Good)': report['1']['recall'],
+        'F1-Score (Good)': report['1']['f1-score'],
+        'Precision (Bad)': report['0']['precision'],
+        'Recall (Bad)': report['0']['recall'],
+        'F1-Score (Bad)': report['0']['f1-score']
     })
 
     # przygotowanie wykresu z dwoma osiami
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    # większy tekst do czytelnosci
+    plt.rcParams.update({
+        'font.size': 14,
+        'axes.titlesize': 16,
+        'axes.labelsize': 14,
+        'legend.fontsize': 12,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12
+    })
 
     # macierz pomyłek
     cm = confusion_matrix(y_test, y_pred)
@@ -447,6 +521,8 @@ for name, model in models.items():
     plt.savefig(f"results_ml/{name} Summary.png")
     plt.close()
 
+    mpl.rcParams.update(mpl.rcParamsDefault)
+
 # finalny wykres ROC/AUC
 for name, model in models.items():
     if hasattr(model, "predict_proba"):
@@ -469,16 +545,14 @@ plt.close()
 # tabela wyników
 results_df = pd.DataFrame(results)
 results_df = results_df.round(4)
-results_df.to_csv("results_ml/classification_results.csv", index=False)
 
 # sortowanie według Accuracy malejąco
 results_df = results_df.sort_values(by='Accuracy', ascending=False)
 
-# sortowanie po dokładności
-results_df_sorted = results_df.sort_values(by='Accuracy', ascending=False)
+results_df.to_csv("results_ml/classification_results.csv", index=False)
 
 # wykres słupkowy dokładności modeli
-plt.bar(results_df_sorted['Model'], results_df_sorted['Accuracy'], color='skyblue')
+plt.bar(results_df['Model'], results_df['Accuracy'], color='skyblue')
 plt.title("Models Accuracy")
 plt.ylabel("Accuracy")
 plt.ylim(0, 1)
